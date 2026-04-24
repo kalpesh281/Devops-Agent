@@ -1,0 +1,75 @@
+# ---- Secrets (NEVER copied into images) ----
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.crt
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+wheels/
+
+# ---- Virtual environments ----
+.venv/
+venv/
+env/
+ENV/
+
+# ---- Testing / coverage ----
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+tests/
+
+# ---- Runtime artifacts ----
+logs/
+*.log
+
+# ---- Docker / CI ----
+Dockerfile
+docker-compose.yml
+docker-compose.override.yml
+.dockerignore
+.github/
+
+# ---- Git ----
+.git/
+.gitignore
+.gitattributes
+
+# ---- Editor / OS ----
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# ---- Docs / project meta (not needed at runtime) ----
+docs/
+README.md
+CLAUDE.md
+MongoDB-Setup.md
+
+# ---- Local scratch ----
+*.local
+.cache/
+tmp/
