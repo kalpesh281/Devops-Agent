@@ -14,6 +14,7 @@ tiers:
   list_commits:   auto
   list_prs:       auto
   list_files:     auto
+  list_services:  auto
   refresh_cache:  auto
 
   # ---- Server + status (Phase 4, auto) ----

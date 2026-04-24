@@ -15,6 +15,7 @@ from telegram_bot.enrollment import (
     is_pending,
     start_enrollment,
 )
+from telegram_bot.keyboards import build_pagination_keyboard, build_services_keyboard
 from tools import github_tools, server_tools
 from utils.fuzzy_resolver import fuzzy_extract
 from utils.github_cache import cache as gh_cache
@@ -78,6 +79,22 @@ def _require_admin(user: dict[str, Any]) -> bool:
     return user.get("role") == "admin"
 
 
+def _parse_page(args: list[str]) -> tuple[list[str], int]:
+    """Peel a trailing integer off args and return (rest, page).
+
+    Lets commands accept ``/repos 2`` or ``/branches foo 3`` without each
+    handler having to duplicate the parsing. Non-numeric trailing args are
+    left in place. Negative / zero pages clamp to 1.
+    """
+    if not args:
+        return args, 1
+    last = args[-1]
+    if last.isdigit():
+        page = max(1, int(last))
+        return args[:-1], page
+    return args, 1
+
+
 # ───────────────────── commands ─────────────────────
 
 
@@ -122,22 +139,29 @@ async def cmd_whoami(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def cmd_repos(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if await _auth(update, context) is None or update.effective_chat is None:
         return
+    _, page = _parse_page(context.args or [])
     result = await github_tools.list_repos()
+    result["_page"] = page
+    total_pages = max(
+        1,
+        (len(result.get("repos", [])) + messages.REPOS_PER_PAGE - 1) // messages.REPOS_PER_PAGE,
+    )
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=messages.build_repos_message(result),
         parse_mode="HTML",
+        reply_markup=build_pagination_keyboard("repos", min(page, total_pages), total_pages),
     )
 
 
 async def cmd_branches(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if await _auth(update, context) is None or update.effective_chat is None:
         return
-    args = context.args or []
+    args, page = _parse_page(context.args or [])
     if not args:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="Usage: <code>/branches &lt;repo&gt;</code>",
+            text="Usage: <code>/branches &lt;repo&gt; [page]</code>",
             parse_mode="HTML",
         )
         return
@@ -152,10 +176,19 @@ async def cmd_branches(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             parse_mode="HTML",
         )
         return
+    result["_page"] = page
+    total_pages = max(
+        1,
+        (len(result.get("branches", [])) + messages.BRANCHES_PER_PAGE - 1)
+        // messages.BRANCHES_PER_PAGE,
+    )
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=messages.build_branches_message(result),
         parse_mode="HTML",
+        reply_markup=build_pagination_keyboard(
+            "br", min(page, total_pages), total_pages, extra_arg=repo
+        ),
     )
 
 
@@ -189,17 +222,18 @@ async def cmd_commits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def cmd_prs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if await _auth(update, context) is None or update.effective_chat is None:
         return
-    args = context.args or []
+    args, page = _parse_page(context.args or [])
     if not args:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="Usage: <code>/prs &lt;repo&gt; [open|closed|all]</code>",
+            text="Usage: <code>/prs &lt;repo&gt; [open|closed|all] [page]</code>",
             parse_mode="HTML",
         )
         return
+    repo = args[0]
     state = args[1] if len(args) > 1 else "open"
     try:
-        result = await github_tools.list_prs(repo=args[0], state=state)
+        result = await github_tools.list_prs(repo=repo, state=state)
     except ValueError as e:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -207,10 +241,18 @@ async def cmd_prs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             parse_mode="HTML",
         )
         return
+    result["_page"] = page
+    total_pages = max(
+        1,
+        (len(result.get("prs", [])) + messages.PRS_PER_PAGE - 1) // messages.PRS_PER_PAGE,
+    )
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=messages.build_prs_message(result),
         parse_mode="HTML",
+        reply_markup=build_pagination_keyboard(
+            "prs", min(page, total_pages), total_pages, extra_arg=f"{repo}|{state}"
+        ),
     )
 
 
@@ -221,13 +263,24 @@ async def cmd_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not args:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="Usage: <code>/files &lt;repo&gt; [branch]</code>",
+            text=(
+                "Usage: <code>/files &lt;repo&gt; [path] [branch]</code>\n\n"
+                "Examples:\n"
+                "  <code>/files trading-dashboard</code> — root of main\n"
+                "  <code>/files mymono frontend</code> — frontend folder on main\n"
+                "  <code>/files mymono backend develop</code> — backend on develop\n\n"
+                "<i>Tip: run <code>/services &lt;repo&gt;</code> first to discover "
+                "deployable folders in a monorepo.</i>"
+            ),
             parse_mode="HTML",
         )
         return
-    branch = args[1] if len(args) > 1 else "main"
+    repo = args[0]
+    path = args[1] if len(args) > 1 else "."
+    # None → list_files resolves the repo's actual default branch.
+    branch = args[2] if len(args) > 2 else None
     try:
-        result = await github_tools.list_files(repo=args[0], branch=branch)
+        result = await github_tools.list_files(repo=repo, branch=branch, path=path)
     except ValueError as e:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -239,6 +292,45 @@ async def cmd_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id=update.effective_chat.id,
         text=messages.build_files_message(result),
         parse_mode="HTML",
+    )
+
+
+async def cmd_services(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if await _auth(update, context) is None or update.effective_chat is None:
+        return
+    args = context.args or []
+    if not args:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=(
+                "Usage: <code>/services &lt;repo&gt; [branch]</code>\n\n"
+                "<i>Finds every <code>deploy.config.yml</code> in the repo — "
+                "works for both single-service repos and monorepos.</i>"
+            ),
+            parse_mode="HTML",
+        )
+        return
+    repo = args[0]
+    # Branch: use the repo's actual default if not specified (avoids the
+    # "main" assumption that breaks on master/develop/feature-branch repos).
+    branch = args[1] if len(args) > 1 else None
+    try:
+        result = await github_tools.list_services(repo=repo, branch=branch)
+    except ValueError as e:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=messages.build_error_message(str(e)),
+            parse_mode="HTML",
+        )
+        return
+    # Pass the resolved branch to the keyboard so "tap to check" drills into
+    # /files on the SAME branch we just scanned.
+    resolved_branch = result.get("branch", "main")
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=messages.build_services_message(result),
+        parse_mode="HTML",
+        reply_markup=build_services_keyboard(repo, result.get("services", []), resolved_branch),
     )
 
 
@@ -359,15 +451,21 @@ async def cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = await _auth(update, context)
     if user is None or update.effective_chat is None:
         return
-    args = context.args or []
+    raw_args = context.args or []
+    args, page = _parse_page(raw_args)
     chat_id = update.effective_chat.id
 
     if not args:
         users = await list_users()
+        total_pages = max(
+            1,
+            (len(users) + messages.USERS_PER_PAGE - 1) // messages.USERS_PER_PAGE,
+        )
         await context.bot.send_message(
             chat_id=chat_id,
-            text=messages.build_users_list_message(users),
+            text=messages.build_users_list_message(users, page=page),
             parse_mode="HTML",
+            reply_markup=build_pagination_keyboard("users", min(page, total_pages), total_pages),
         )
         return
 
@@ -489,6 +587,170 @@ async def cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         text=f"Unknown subcommand: <code>{sub}</code>. Try <code>/users</code>, <code>/users pending</code>, <code>/users revoke</code>, <code>/users promote</code>, <code>/users reverify</code>.",
         parse_mode="HTML",
     )
+
+
+# ───────────────────── pagination callback router ─────────────────────
+
+
+async def handle_callback_query(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Route inline-keyboard button taps.
+
+    Only pagination callbacks (``p:<cmd>[:<arg>]:<page>``) are handled for
+    now; ``noop`` is used by disabled/indicator buttons. Destructive
+    approval callbacks land in Phase 7.
+    """
+    q = update.callback_query
+    if q is None or q.data is None or q.message is None:
+        return
+    data = q.data
+
+    # Disabled / indicator button — ack silently so Telegram clears the spinner.
+    if data == "noop":
+        await q.answer()
+        return
+
+    # Auth check up front — applies to every callback type below.
+    tg = update.effective_user
+    if tg is None:
+        await q.answer()
+        return
+    user = await get_cached(tg.id)
+    if not user or user.get("status") != "active":
+        await q.answer("Not authorized.", show_alert=True)
+        return
+    await update_last_seen(tg.id)
+
+    # Route: pagination (p:*)
+    if data.startswith("p:"):
+        await _handle_pagination_callback(q, data)
+        return
+
+    # Route: drill into a service discovered by /services (f:<repo>:<folder>)
+    if data.startswith("f:"):
+        await _handle_service_drill_callback(q, data)
+        return
+
+    # Unknown prefix — just dismiss the spinner.
+    await q.answer()
+
+
+async def _handle_pagination_callback(q: Any, data: str) -> None:
+    parts = data.split(":", 3)
+    if len(parts) != 4:
+        await q.answer()
+        return
+    _, cmd, arg, page_str = parts
+    try:
+        page = max(1, int(page_str))
+    except ValueError:
+        await q.answer()
+        return
+    try:
+        new_text, new_markup = await _render_page(cmd, arg, page)
+    except Exception as e:  # noqa: BLE001
+        log.warning("pagination.render_failed", cmd=cmd, arg=arg, page=page, error=str(e))
+        await q.answer("Failed to render page.", show_alert=True)
+        return
+    if new_text is None:
+        await q.answer("Nothing to show.")
+        return
+    await q.answer()
+    try:
+        await q.edit_message_text(text=new_text, parse_mode="HTML", reply_markup=new_markup)
+    except Exception as e:  # noqa: BLE001
+        log.debug("pagination.edit_noop", error=str(e))
+
+
+async def _handle_service_drill_callback(q: Any, data: str) -> None:
+    """Tap on a service button in /services → send /files output as a reply."""
+    parts = data.split(":", 3)
+    # Accept both the old 3-part (no branch) and new 4-part (with branch) forms
+    # so in-flight keyboards from before this upgrade don't silently break.
+    if len(parts) == 4:
+        _, repo, folder, branch = parts
+    elif len(parts) == 3:
+        _, repo, folder = parts
+        branch = None  # list_files will resolve the default branch
+    else:
+        await q.answer()
+        return
+    await q.answer(f"Checking {folder} ({branch or 'default'})…")
+    try:
+        result = await github_tools.list_files(repo=repo, branch=branch, path=folder)
+    except ValueError as e:
+        await q.message.reply_text(
+            text=messages.build_error_message(str(e)),
+            parse_mode="HTML",
+        )
+        return
+    await q.message.reply_text(
+        text=messages.build_files_message(result),
+        parse_mode="HTML",
+    )
+
+
+async def _render_page(cmd: str, arg: str, page: int) -> tuple[str | None, Any | None]:
+    """Re-fetch data for the paginated command and render the new page."""
+    if cmd == "repos":
+        result = await github_tools.list_repos()
+        result["_page"] = page
+        total_pages = max(
+            1,
+            (len(result.get("repos", [])) + messages.REPOS_PER_PAGE - 1) // messages.REPOS_PER_PAGE,
+        )
+        return (
+            messages.build_repos_message(result),
+            build_pagination_keyboard("repos", min(page, total_pages), total_pages),
+        )
+
+    if cmd == "br":
+        # arg is the repo name
+        try:
+            result = await github_tools.list_branches(repo=arg)
+        except ValueError:
+            return None, None
+        result["_page"] = page
+        total_pages = max(
+            1,
+            (len(result.get("branches", [])) + messages.BRANCHES_PER_PAGE - 1)
+            // messages.BRANCHES_PER_PAGE,
+        )
+        return (
+            messages.build_branches_message(result),
+            build_pagination_keyboard("br", min(page, total_pages), total_pages, extra_arg=arg),
+        )
+
+    if cmd == "users":
+        users = await list_users()
+        total_pages = max(
+            1,
+            (len(users) + messages.USERS_PER_PAGE - 1) // messages.USERS_PER_PAGE,
+        )
+        return (
+            messages.build_users_list_message(users, page=page),
+            build_pagination_keyboard("users", min(page, total_pages), total_pages),
+        )
+
+    if cmd == "prs":
+        # arg is "repo|state"
+        repo, _, state = arg.partition("|")
+        state = state or "open"
+        try:
+            result = await github_tools.list_prs(repo=repo, state=state)
+        except ValueError:
+            return None, None
+        result["_page"] = page
+        total_pages = max(
+            1,
+            (len(result.get("prs", [])) + messages.PRS_PER_PAGE - 1) // messages.PRS_PER_PAGE,
+        )
+        return (
+            messages.build_prs_message(result),
+            build_pagination_keyboard("prs", min(page, total_pages), total_pages, extra_arg=arg),
+        )
+
+    # Unknown command code — ignore.
+    return None, None
 
 
 # ───────────────────── catch-all (enrollment replies) ─────────────────────

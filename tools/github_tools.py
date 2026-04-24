@@ -22,18 +22,57 @@ from utils.logger import get_logger
 
 log = get_logger(__name__)
 
-DEFAULT_FILE_PATTERNS: tuple[str, ...] = (
-    "Dockerfile",
-    "docker-compose.yml",
-    "package.json",
-    "pyproject.toml",
-    "requirements.txt",
-    "deploy.config.yml",
-    "Makefile",
-    ".dockerignore",
-    ".env.example",
-    "README.md",
+# The ONLY hard blockers for `/deploy`. ``deploy.config.yml`` is the agent's
+# manifest (name, port, target_server, image); ``Dockerfile`` is needed to
+# build the image. Everything else is informational.
+_CRITICAL_FILES: tuple[str, ...] = ("deploy.config.yml", "Dockerfile")
+
+# Advisory — we don't block deploys on these, but we loudly flag them so
+# secret-leakage doesn't creep into images.
+_ADVISORY_FILES: tuple[str, ...] = (".dockerignore",)
+
+# Stack detection. Each stack lists every marker file that proves it,
+# in *display-priority order* (the first one found becomes ``stack_marker``).
+#
+# The order of this dict matters — earlier entries win when a repo has
+# markers from multiple stacks. Rationale:
+#   - ``flutter`` before ``node`` because a Flutter project often contains
+#     a ``node_modules/`` helper tree with package.json, but pubspec.yaml is
+#     a stronger signal.
+#   - ``node`` before ``python`` because some Python repos keep a small
+#     package.json for tooling.
+_STACK_MARKERS: dict[str, tuple[str, ...]] = {
+    "flutter": ("pubspec.yaml",),
+    "gradle": ("build.gradle.kts", "build.gradle"),
+    "node": ("package.json",),
+    "python": ("pyproject.toml", "requirements.txt"),
+    "go": ("go.mod",),
+    "rust": ("Cargo.toml",),
+    "static": ("index.html",),
+}
+
+# Sub-stack labels so the UI can say "Python (Poetry)" vs "Python (pip)".
+_SUBSTACK_FROM_MARKER: dict[str, str] = {
+    "pyproject.toml": "Poetry",
+    "requirements.txt": "pip/venv",
+    "build.gradle.kts": "Kotlin DSL",
+    "build.gradle": "Groovy DSL",
+}
+
+# The full candidate set we probe on GitHub — union of everything above.
+_CANDIDATES: tuple[str, ...] = tuple(
+    dict.fromkeys(  # dedupe while preserving order
+        (
+            *_CRITICAL_FILES,
+            *_ADVISORY_FILES,
+            *(m for markers in _STACK_MARKERS.values() for m in markers),
+        )
+    )
 )
+
+# Kept as a public name for backward-compat with earlier callers that passed
+# a custom ``patterns`` list. Mirrors the probe set.
+DEFAULT_FILE_PATTERNS: tuple[str, ...] = _CANDIDATES
 
 _gh_client: Github | None = None
 
@@ -148,42 +187,212 @@ async def list_prs(repo: str, state: str = "open") -> dict[str, Any]:
         raise ValueError(f"GitHub {e.status}: {e.data}") from e
 
 
+def _detect_stack(present_paths: set[str]) -> tuple[str, str | None, str | None]:
+    """Identify the stack from which marker files exist.
+
+    Returns ``(stack, marker, substack)``:
+
+        - ``stack``    — canonical key from ``_STACK_MARKERS`` or ``"unknown"``
+        - ``marker``   — first file that proved it (e.g. ``pyproject.toml``)
+        - ``substack`` — finer label (e.g. ``"Poetry"``) or ``None``
+    """
+    for stack, markers in _STACK_MARKERS.items():
+        for marker in markers:
+            if marker in present_paths:
+                return stack, marker, _SUBSTACK_FROM_MARKER.get(marker)
+    return "unknown", None, None
+
+
 @tool(
     name="list_files",
-    description="Check which key files (Dockerfile, package.json, etc.) exist in a branch.",
+    description="Check deploy-critical files on a branch, stack-aware (node/python/unknown).",
     schema={
         "type": "object",
         "properties": {
             "repo": {"type": "string"},
             "branch": {"type": "string", "default": "main"},
-            "patterns": {"type": "array", "items": {"type": "string"}},
+            "path": {
+                "type": "string",
+                "default": ".",
+                "description": "Subfolder to check (monorepo support). Default '.' = repo root.",
+            },
         },
         "required": ["repo"],
     },
 )
 async def list_files(
     repo: str,
-    branch: str = "main",
-    patterns: list[str] | None = None,
+    branch: str | None = None,
+    path: str = ".",
 ) -> dict[str, Any]:
-    patterns_list = patterns if patterns else list(DEFAULT_FILE_PATTERNS)
+    """Probe the candidate files on GitHub, detect stack, return per-bucket status.
+
+    Return shape::
+
+        {
+          "repo": "trading-dashboard",
+          "branch": "main",
+          "stack": "node" | "python" | "unknown",
+          "required": [{"path", "present", "size"}],   # stack-specific + critical
+          "advisory": [{"path", "present", "size"}],   # .dockerignore etc.
+          "deploy_ready": bool,
+          "missing_required": ["deploy.config.yml", ...],
+        }
+
+    A Python repo missing ``package.json`` is NOT flagged — only files that
+    matter for the detected stack are ever called missing.
+    """
+    # Normalise the subfolder path. Reject ".." BEFORE any stripping so the
+    # user can't smuggle it in as "./../etc" or similar.
+    raw = path.strip()
+    if ".." in raw.replace("\\", "/").split("/"):
+        raise ValueError(f"invalid path: {path!r} (no ..)")
+    folder = raw.strip("/")
+    if folder.startswith("./"):
+        folder = folder[2:]
+    folder = folder or "."
+
+    def _full(pat: str) -> str:
+        return pat if folder == "." else f"{folder}/{pat}"
+
     try:
         r = _gh().get_repo(_full_name(repo))
-        present: list[dict[str, Any]] = []
-        missing: list[str] = []
-        for pat in patterns_list:
+        # Fall back to the repo's actual default branch (might be "main",
+        # "master", "develop", or a per-team convention like "new-backend").
+        if not branch:
+            branch = r.default_branch
+        # Probe every candidate once. Store size + presence for each.
+        probe: dict[str, dict[str, Any] | None] = {}
+        for pat in _CANDIDATES:
             try:
-                content = r.get_contents(pat, ref=branch)
+                content = r.get_contents(_full(pat), ref=branch)
             except GithubException as e:
                 if e.status == 404:
-                    missing.append(pat)
+                    probe[pat] = None
                     continue
                 raise
             if isinstance(content, list):
-                # path was a directory — skip
+                # Path resolved to a directory — treat as not-a-file.
+                probe[pat] = None
                 continue
-            present.append({"path": content.path, "size": content.size, "sha": content.sha[:7]})
-        return {"repo": repo, "branch": branch, "present": present, "missing": missing}
+            probe[pat] = {"size": content.size, "sha": content.sha[:7]}
+
+        present_paths: set[str] = {p for p, v in probe.items() if v is not None}
+        stack, stack_marker, substack = _detect_stack(present_paths)
+
+        def _entry(path: str) -> dict[str, Any]:
+            v = probe.get(path)
+            return {
+                "path": path,
+                "present": v is not None,
+                "size": (v or {}).get("size", 0),
+            }
+
+        # Hard blockers only — deploy.config.yml + Dockerfile. Stack markers
+        # are informational (reported separately below), never required.
+        required = [_entry(p) for p in _CRITICAL_FILES]
+        advisory = [_entry(p) for p in _ADVISORY_FILES]
+
+        missing_required = [item["path"] for item in required if not item["present"]]
+        deploy_ready = not missing_required
+
+        return {
+            "repo": repo,
+            "branch": branch,
+            "path": folder,
+            "stack": stack,
+            "stack_marker": stack_marker,
+            "substack": substack,
+            "required": required,
+            "advisory": advisory,
+            "deploy_ready": deploy_ready,
+            "missing_required": missing_required,
+        }
+    except GithubException as e:
+        raise ValueError(f"GitHub {e.status}: {e.data}") from e
+
+
+@tool(
+    name="list_services",
+    description=(
+        "Discover every deployable service in a repo by scanning for deploy.config.yml files. "
+        "Works for both single-service repos and monorepos."
+    ),
+    schema={
+        "type": "object",
+        "properties": {
+            "repo": {"type": "string"},
+            "branch": {"type": "string", "default": "main"},
+        },
+        "required": ["repo"],
+    },
+)
+async def list_services(repo: str, branch: str | None = None) -> dict[str, Any]:
+    """Walk the repo tree; report services + top-level layout.
+
+    Returns a single payload covering both:
+
+    * ``services``   — every ``deploy.config.yml`` discovered in the tree
+      (``path``, ``name``, ``config_path``).
+    * ``root_folders`` / ``root_files`` — what's at the top level of the
+      repo, so the caller can render a "directory preview" without showing
+      a full tree.
+    * ``folders_with_config`` — the subset of top-level folders whose
+      subtree contains a ``deploy.config.yml``. Used to highlight which
+      folders are deploy-ready in the message.
+    """
+    try:
+        r = _gh().get_repo(_full_name(repo))
+        if not branch:
+            branch = r.default_branch
+        branch_obj = r.get_branch(branch)
+        tree = r.get_git_tree(branch_obj.commit.sha, recursive=True)
+
+        services: list[dict[str, Any]] = []
+        root_folders_set: set[str] = set()
+        root_files: list[str] = []
+        folders_with_config: set[str] = set()
+
+        for entry in tree.tree:
+            path = entry.path
+            if not path:
+                continue
+
+            # Top-level entries (no "/" in the path)
+            if "/" not in path:
+                if entry.type == "tree":
+                    root_folders_set.add(path)
+                elif entry.type == "blob":
+                    root_files.append(path)
+
+            # Find every deploy.config.yml anywhere in the repo
+            if entry.type == "blob" and path.endswith("deploy.config.yml"):
+                if "/" not in path:
+                    folder = "."
+                    name = repo
+                else:
+                    folder = path.rsplit("/", 1)[0]
+                    name = folder.rsplit("/", 1)[-1]
+                    # Which top-level folder contains this service?
+                    folders_with_config.add(path.split("/", 1)[0])
+                services.append(
+                    {
+                        "path": folder,
+                        "name": name,
+                        "config_path": path,
+                    }
+                )
+
+        services.sort(key=lambda s: (s["path"] != ".", s["path"]))
+        return {
+            "repo": repo,
+            "branch": branch,
+            "services": services,
+            "count": len(services),
+            "root_folders": sorted(root_folders_set),
+            "root_files": sorted(root_files),
+            "folders_with_config": sorted(folders_with_config),
+        }
     except GithubException as e:
         raise ValueError(f"GitHub {e.status}: {e.data}") from e
 

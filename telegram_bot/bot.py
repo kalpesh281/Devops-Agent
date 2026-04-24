@@ -11,6 +11,7 @@ from typing import Any
 from telegram import BotCommand
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     InlineQueryHandler,
     MessageHandler,
@@ -30,7 +31,8 @@ _COMMAND_MENU: list[BotCommand] = [
     BotCommand("branches", "Branches for a repo"),
     BotCommand("commits", "Recent commits"),
     BotCommand("prs", "Open pull requests"),
-    BotCommand("files", "Key files in a repo"),
+    BotCommand("files", "Deploy-readiness for a repo / folder"),
+    BotCommand("services", "Find deployable services in a repo"),
     BotCommand("refresh", "Force cache refresh"),
     BotCommand("servers", "List deployment targets"),
     BotCommand("status", "Running containers per server"),
@@ -58,6 +60,7 @@ def _build_application() -> AppType:
     app.add_handler(CommandHandler("commits", handlers.cmd_commits))
     app.add_handler(CommandHandler("prs", handlers.cmd_prs))
     app.add_handler(CommandHandler("files", handlers.cmd_files))
+    app.add_handler(CommandHandler("services", handlers.cmd_services))
     app.add_handler(CommandHandler("refresh", handlers.cmd_refresh))
     app.add_handler(CommandHandler("servers", handlers.cmd_servers))
     app.add_handler(CommandHandler("status", handlers.cmd_status))
@@ -66,6 +69,9 @@ def _build_application() -> AppType:
 
     # Inline-mode fuzzy search
     app.add_handler(InlineQueryHandler(handlers.handle_inline_query))
+
+    # Inline-keyboard callbacks (pagination today; HITL approvals land in Phase 7).
+    app.add_handler(CallbackQueryHandler(handlers.handle_callback_query))
 
     # Catch-all for enrollment replies (non-command text)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_any_message))
