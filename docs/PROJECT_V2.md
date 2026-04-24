@@ -1505,7 +1505,7 @@ Actor format: `telegram:<username>` if the Telegram user has a username, else `t
 
 - **Structured audit log** in Mongo (every action: actor, tier, result, duration)
 - **Prometheus `/metrics`**: deploys_total, tool_calls_total, llm_tokens_total, container_restarts_total, image_cleanup_total
-- **FastAPI `/health`** liveness endpoint — binds on `$AGENT_PORT` (default 8100 on the physical server, 8000 locally). The default is 8100 because the production host already runs other services on 8000.
+- **FastAPI `/health`** liveness endpoint — binds on `$AGENT_PORT` (default **8100 everywhere** — Mac dev + physical server). Unified because port 8000 on the physical server is owned by `voice-auth-backend`; picking 8100 once removes an env-specific footgun.
 - **Per-deployment healthchecks** after every `docker run`
 - **Scheduled health pings** every 5 min, alerts to Telegram on red
 - **structlog** for JSON-formatted application logs to stdout
@@ -1999,7 +1999,7 @@ docker compose logs -f agent
 4. **Fuzzy resolve**: `/deploy trding-dashbord main` → bot replies "did you mean `trading-dashboard`?" with confirm button; tapping confirm starts the deploy.
 5. **Audit log**: any command → Mongo `audit_log` row with actor, tier, result, duration.
 6. **Checkpointing**: start a deploy → kill agent mid-build → restart → resumes correctly.
-7. **Metrics**: `curl http://localhost:8000/metrics` → Prometheus counters visible.
+7. **Metrics**: `curl http://localhost:8100/metrics` → Prometheus counters visible.
 8. **Container hardening**: `docker inspect <svc>` → `ReadonlyRootfs: true`, `CapDrop: [ALL]`.
 9. **Multi-target**: deploy with `target_server: client-acme-prod` → container on EC2, not physical.
 10. **Identifier resolution**: `/logs trading-dashboard`, `/logs kalpesh281/trading-dashboard`, `/logs internal` → all resolve to same deployment.

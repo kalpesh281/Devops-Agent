@@ -26,7 +26,7 @@ Get the repo from "spec + docs only" to "a working Python 3.12 venv with every d
 | **`mypy` strict, per-package scope** | §3 — typechecks only first-party code; `tests/` relaxed. |
 | **`pytest-asyncio` in `auto` mode** | Matches the codebase's async-first shape (FastAPI, motor, python-telegram-bot v21). |
 | **`.dockerignore` excludes `secrets/`, `*.pem`, `.env`, `docs/`, `.git/`, `tests/`, `.venv/`** | Mandatory per §14.3 + spec §17 "`.dockerignore` must keep secrets out of images." |
-| **`AGENT_PORT=8000` default locally** | Matches `.env.example` dev; `8100` kicks in on the physical server only. |
+| **`AGENT_PORT=8100` everywhere** | Unified port: Mac dev + physical server both use 8100. `voice-auth-backend` owns 8000 on prod, so we picked 8100 once and use it universally to avoid env-specific copy-paste mistakes. |
 
 ## Deliverables
 

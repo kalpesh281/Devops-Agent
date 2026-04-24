@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| **Status** | ⚪ QUEUED |
-| **Started on** | — |
-| **Completed on** | — |
+| **Status** | ✅ COMPLETED |
+| **Started on** | 2026-04-24 |
+| **Completed on** | 2026-04-24 |
 | **Depends on** | Phase 1 |
 | **Blocks** | Phase 3 (commands need tools), Phase 6 (graph needs registry) |
 | **Spec references** | `docs/PROJECT_V2.md` §7.3 (tool registry), §8 (GitHub commands), §10.2 (GitHub cache), §10.5 (fuzzy resolver), §14.2 (allow/denylists) |
@@ -124,14 +124,45 @@ make lint && make typecheck
 
 ## Acceptance criteria
 
-- [ ] All 15+ unit tests green
-- [ ] `REGISTRY` contains all six tools after `import tools.github_tools`
-- [ ] Tier lookup returns correct tier for every tool (no `KeyError`)
-- [ ] Denylist rejects `mongo`, `agent`, `traefik`; accepts anything else
-- [ ] Live `cache.refresh()` populates `cache.repos` from `GradScalerTeam`
-- [ ] Background refresh task starts on app lifespan (logs `cache.refreshed`)
-- [ ] `fuzzy_resolve` returns `None` on empty choices, tuple on hit, `None` below cutoff
-- [ ] `make lint` + `make typecheck` clean
+- [x] All 26 unit tests green (6 registry, 8 fuzzy, 4 cache, 8 github_tools)
+- [x] `REGISTRY` contains all six tools after `import tools.github_tools`
+- [x] Tier lookup returns correct tier (`auto` for all 6); YAML overrides decorator
+- [x] Denylist rejects `mongo`, `agent`, `traefik`; accepts others
+- [x] Live `cache.refresh()` populates from `GradScalerTeam` (42 repos, owner_kind="organization")
+- [x] Background refresh task starts on app lifespan (`github_cache.spawned` logged)
+- [x] `fuzzy_resolve` handles empty query, empty choices, cutoff
+- [x] `make lint` + `make typecheck` clean
+
+## Verification log (2026-04-24)
+
+```
+✅ make test          → 38 passed (6 registry, 8 fuzzy, 4 cache, 8 github_tools,
+                         12 carry-forward from Phase 1)
+✅ make lint          → All checks passed! 27 files already formatted
+✅ make typecheck     → Success: no issues found in 20 source files
+✅ make dev           → lifespan:
+                         • startup.begin / mongo.connected / indexes_ensured
+                         • github_cache.spawned (interval_seconds=300)
+                         • startup.complete
+                         • cache.refreshed  owner_kind=organization
+                                            repo_count=42   elapsed_ms=29480
+✅ live tool calls    → 
+    - list_repos()   → 42 repos (LangGraph-Projects, Product-Law-Coach-*, …)
+    - list_branches('LangGraph-Projects') → 6 branches (development, master, …)
+    - list_files(..., patterns=default) → present=['requirements.txt'],
+                                           missing=['Dockerfile', 'package.json', ...]
+    - REGISTRY keys  → ['list_repos','list_branches','list_commits',
+                        'list_prs','list_files','refresh_cache']
+    - is_denied('mongo')=True, is_denied('trading-x')=False
+```
+
+## Design deviations vs. original plan
+
+- **Decorator signature: `@tool(name, description, tier="auto", schema=None)`** — keyword-first, `tier` is a default overridden by `config/tool_tiers.yml`. Original draft required `tier` as a positional arg; relaxing it lets YAML remain authoritative without forcing every call site to repeat the value.
+- **Tier resolution happens at registration time, not lookup time.** Once stored in `ToolSpec.tier`, `get_tier()` is O(1). YAML edits require a restart — acceptable for v2.
+- **`_gh_client` module-level singleton in `github_tools.py`** — avoids recreating the PyGithub client on every call. Tests patch it to `None` + `Github` class to inject mocks.
+- **Refresh runs in `asyncio.to_thread`** — PyGithub is blocking; threadpool keeps FastAPI responsive during the ~30 s initial refresh against GradScalerTeam.
+- **GitHub cache spawn happens after Mongo indexes** — so if Mongo is unreachable, the cache still tries to populate (/health reflects Mongo status; `/list_repos` works from cache even if Mongo is degraded).
 
 ## What this phase does NOT do
 

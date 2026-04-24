@@ -1,0 +1,45 @@
+# Tool tier + denylist configuration (spec §7.3 + §14.1 + §14.2).
+#
+# - `tiers:` overrides the decorator-declared tier per tool name.
+#   Edit this file to retier a tool WITHOUT touching code.
+# - `denylist_containers:` names that can never be stopped / deleted / rolled
+#   back via chat, regardless of who issues the command. Used by approval-
+#   tier handlers in Phase 7. Prod server adds its client containers (see
+#   docs/deployment/post-dev-deployment.md §5).
+
+tiers:
+  # ---- GitHub (Phase 2, auto) ----
+  list_repos:     auto
+  list_branches:  auto
+  list_commits:   auto
+  list_prs:       auto
+  list_files:     auto
+  refresh_cache:  auto
+
+  # ---- Server + status (Phase 4, auto) ----
+  # list_servers:   auto
+  # status:         auto
+  # disk_usage:     auto
+
+  # ---- Deployment (Phase 5, notify) ----
+  # deploy:         notify
+  # redeploy:       notify
+  # restart:        notify
+
+  # ---- Diagnostics (Phase 8, auto) ----
+  # get_logs:       auto
+  # inspect:        auto
+  # get_health:     auto
+  # get_report:     auto
+
+  # ---- Destructive (Phase 7, approval) ----
+  # stop:                approval
+  # rollback:            approval
+  # remove_images:       approval
+  # cleanup:             approval
+  # delete_deployment:   approval
+
+denylist_containers:
+  - mongo
+  - agent
+  - traefik

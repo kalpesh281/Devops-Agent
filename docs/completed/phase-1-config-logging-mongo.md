@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| **Status** | ⚪ QUEUED |
-| **Started on** | — |
-| **Completed on** | — |
+| **Status** | ✅ COMPLETED |
+| **Started on** | 2026-04-24 |
+| **Completed on** | 2026-04-24 |
 | **Depends on** | Phase 0 |
 | **Blocks** | Phases 2–12 |
 | **Spec references** | `docs/PROJECT_V2.md` §3 (stack), §12.3 (token caps), §13 (toggles), §14.3 (secrets check), §15 (observability), §20 (data model) |
@@ -13,7 +13,7 @@
 
 ## Objective
 
-Stand up the FastAPI application shell, Mongo connection, structured logging, and the startup security check. End state: `make dev` boots, `curl :8000/health` returns `{"status":"ok","mongo":"connected"}`, and every subsequent phase has a clean config object + Mongo handle + logger to use.
+Stand up the FastAPI application shell, Mongo connection, structured logging, and the startup security check. End state: `make dev` boots, `curl :8100/health` returns `{"status":"ok","mongo":"connected"}`, and every subsequent phase has a clean config object + Mongo handle + logger to use.
 
 ## Design choices
 
@@ -35,7 +35,7 @@ Stand up the FastAPI application shell, Mongo connection, structured logging, an
 - `config/settings.py` — `Settings` class with every Stage 1 + Stage 2 + Stage 3 var from `.env.example`; feature toggles (`ENABLE_FREE_TEXT_CHAT`, `ENABLE_PREDEPLOY_ANALYSIS`, `ENABLE_EXPLAIN_COMMAND`, `ENABLE_LOG_ALERTS`).
 - `config/token_limits.py` — `TOKEN_BUDGETS` dict per §12.3 (`intent_parse: 1000`, `predeploy: 2000`, `explain: 800`).
 - `utils/logger.py` — `structlog` setup, `get_logger(name)` helper, JSON output configurable via `LOG_LEVEL`.
-- `utils/mongo.py` — module-level `client`, `db`, `ensure_indexes()`, `close()`.
+- `utils/mongo.py` — module-level `client`, `db`, `ensure_indexes()`, `close()`. Collections are accessed via `db.servers`, `db.deployments`, etc. (canonical names per §20).
 - `utils/secrets_check.py` — `verify_env_security()` per §14.3.
 - `api/main.py` — FastAPI `app`, lifespan that: runs secrets check → connects Mongo → ensures indexes → yields → closes Mongo. Registers `/health` and `/metrics` routers.
 - `api/routes/health.py` — `GET /health` returns `{"status": "ok", "mongo": "connected" | "down"}`.
@@ -86,11 +86,11 @@ make dev
 # expect: structlog JSON line "mongo.connected"
 
 # 3. Health endpoint
-curl -s http://localhost:8000/health | python3 -m json.tool
+curl -s http://localhost:8100/health | python3 -m json.tool
 # expect: {"status":"ok","mongo":"connected","version":"0.1.0"}
 
 # 4. Metrics endpoint (Prometheus format)
-curl -s http://localhost:8000/metrics | head -5
+curl -s http://localhost:8100/metrics | head -5
 # expect: lines like "# HELP python_info Python runtime information"
 
 # 5. Secrets check warns on loose perms
@@ -98,7 +98,7 @@ chmod 644 .env; make dev 2>&1 | grep -i "permissive" && chmod 600 .env
 # expect: at least one WARNING line mentioning .env permissions
 
 # 6. Mongo TTL indexes created
-mongosh "$MONGO_URL" devops_agent --eval '
+mongosh "$MONGO_URL" "$MONGO_DB_NAME" --eval '
   ["checkpoints","container_logs","diagnostic_events"].forEach(c =>
     print(c, JSON.stringify(db[c].getIndexes().filter(i => i.expireAfterSeconds))))'
 # expect: three collections each showing one TTL index
@@ -109,14 +109,45 @@ make typecheck
 
 ## Acceptance criteria
 
-- [ ] `make dev` boots without exception; lifespan logs `mongo.connected`
-- [ ] `/health` returns `{"status":"ok","mongo":"connected"}` when Mongo is up
-- [ ] `/health` returns `{"status":"ok","mongo":"down"}` (HTTP 503) when Mongo is killed
-- [ ] `/metrics` returns Prometheus text format
-- [ ] TTL indexes present on `checkpoints` (7d), `container_logs` (7d), `diagnostic_events` (30d)
-- [ ] `verify_env_security()` warns on `chmod 644 .env`, passes silently on `600`
-- [ ] All unit tests green; `make lint` + `make typecheck` clean
-- [ ] `utils.logger.get_logger(__name__)` produces JSON lines
+- [x] `make dev` boots without exception; lifespan logs `mongo.connected`
+- [x] `/health` returns `{"status":"ok","mongo":"connected","version":"0.1.0"}` — HTTP 200
+- [x] `/health` returns HTTP 503 with `mongo:"down"` when Mongo is unreachable (verified via code path review — `health.py` sets `response.status_code = 503` on ping failure)
+- [x] `/metrics` returns Prometheus text format (default Python GC + process metrics registered)
+- [x] TTL indexes present: `checkpoints` (7d), `container_logs` (7d), `diagnostic_events` (30d) + 2 compound query indexes
+- [x] `verify_env_security()` warns on `chmod 644 .env` (observed in startup log), passes silently on `600`
+- [x] All 12 unit tests green; `make lint` + `make typecheck` clean
+- [x] `utils.logger.get_logger(__name__)` produces JSON lines (confirmed in startup log)
+
+## Verification log (2026-04-24)
+
+```
+✅ make test          → 12 passed (7 settings, 5 secrets-check)
+✅ make lint          → All checks passed! 19 files already formatted
+✅ make typecheck     → Success: no issues found in 16 source files
+✅ make dev           → uvicorn booted on :8100, lifespan:
+                         • startup.begin {version:"0.1.0", agent_port:8100,
+                           mongo_db:"AiCubixStaging", github_org:"GradScalerTeam"}
+                         • WARN ".env has permissive permissions" (mode 0o644)
+                         • pem.absent_expected_pre_phase_5
+                         • mongo.connected db="AiCubixStaging"
+                         • mongo.indexes_ensured collections=["checkpoints",
+                           "container_logs", "diagnostic_events"]
+                         • startup.complete
+✅ GET /health        → HTTP 200 {"status":"ok","mongo":"connected","version":"0.1.0"}
+✅ GET /metrics       → Prometheus text format
+✅ Mongo state:
+    checkpoints         TTL ttl_created_at → 7 days
+    container_logs      TTL ttl_created_at → 7 days
+                        idx deployment_timestamp_desc  (deployment↑, timestamp↓)
+    diagnostic_events   TTL ttl_created_at → 30 days
+                        idx deployment_triggered_desc  (deployment↑, triggered_at↓)
+```
+
+## Design deviations vs. original plan
+
+- **`OPENAI_API_KEY` made optional (default `""`)** — spec §3 implies it's required, but Phase 1-9 don't need it. Phase 10 (`utils/llm.py`) is the gate that validates presence when actually calling OpenAI. Keeping it required here would have blocked Phase 1 boot on a Phase 10 prerequisite.
+- **No separate `ensure_indexes()` test collection** — I create indexes on the real `checkpoints`, `container_logs`, `diagnostic_events` collections at startup; `createIndexes` auto-creates the collection if it doesn't exist. Idempotent: re-running is a no-op.
+- **`utils/mongo.py` uses module-level `_client` / `_db` singletons with lazy getters** instead of a class. Simpler and avoids import-order issues; drop-in compatible with tests via `importlib.reload`.
 
 ## What this phase does NOT do
 

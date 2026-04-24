@@ -3,7 +3,7 @@
 # Override via PYTHON=python3.13 if you need to experiment.
 
 PYTHON     ?= python3.12
-AGENT_PORT ?= 8000
+AGENT_PORT ?= 8100
 VENV_BIN    = .venv/bin
 
 .PHONY: help install dev run test lint format typecheck clean reset

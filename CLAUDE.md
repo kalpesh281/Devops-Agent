@@ -13,8 +13,8 @@ The spec defines a `Makefile` (not yet materialized). Once `make install` has be
 | Command | Purpose |
 |---|---|
 | `make install` | Create `.venv` and `pip install -e ".[dev]"` |
-| `make dev` | `uvicorn api.main:app --reload --port 8000` |
-| `make run` | `uvicorn api.main:app --port 8000` (no reload) |
+| `make dev` | `uvicorn api.main:app --reload --port 8100` |
+| `make run` | `uvicorn api.main:app --port 8100` (no reload) |
 | `make test` | `pytest tests/` |
 | `make lint` | `ruff check .` + `ruff format --check .` |
 | `make typecheck` | `mypy agents/ api/ tools/ utils/ discord_bot/ config/` |

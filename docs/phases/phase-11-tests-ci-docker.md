@@ -92,7 +92,7 @@ docker run --rm -e MONGO_URL=<...> -e GITHUB_TOKEN=<...> devops-agent:dev python
 # B. docker compose up
 docker compose up -d
 docker compose ps   # expect agent + mongo healthy
-curl http://localhost:8000/health
+curl http://localhost:8100/health
 
 # C. CI green
 # Open a PR on a feature branch; GitHub Actions runs; all jobs green.

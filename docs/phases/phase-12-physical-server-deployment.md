@@ -20,7 +20,7 @@ Move the agent from "works on my Mac" to "runs as a first-class service on `serv
 | Choice | Why |
 |---|---|
 | **Run mode: systemd unit** | `docs/deployment/post-dev-deployment.md` §7 option C — survives reboots, gives journalctl out of the box. |
-| **Port 8100 (not 8000)** | `voice-auth-backend` owns 8000 on that host — documented in the deployment doc. |
+| **Port 8100 (same as dev)** | Unified port everywhere. `voice-auth-backend` owns 8000 on this host, so 8100 was the natural pick — and we use it on Mac dev too, so there's nothing to change between environments. |
 | **`connection: local` for `physical-main`** | §6 — single-line change from dev form. |
 | **Denylist expanded** | `docs/deployment/post-dev-deployment.md` §5 — every existing container on the host added so `/stop` can never touch them by accident. |
 | **No `physical.pem` on the server** | §6 — agent talks to local Docker daemon, no SSH loopback. |

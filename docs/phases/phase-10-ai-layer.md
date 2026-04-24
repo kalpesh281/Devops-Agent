@@ -104,7 +104,7 @@ make test
 # expect: message footer: "GPT-4o-mini • 247 tokens • ~$0.00015"
 
 # 5. Token metric increments
-curl -s http://localhost:8000/metrics | grep llm_tokens_total
+curl -s http://localhost:8100/metrics | grep llm_tokens_total
 # expect: counter > 0 after /explain
 
 # 6. Flag-off path

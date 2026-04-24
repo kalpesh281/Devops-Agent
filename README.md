@@ -86,7 +86,7 @@ chmod 600 secrets/servers.yml
 # edit servers.yml — declare physical + any client EC2s
 
 # 6. Run
-make dev   # uvicorn with reload on :8000
+make dev   # uvicorn with reload on :8100
 ```
 
 See [docs/PROJECT_V2.md §15](docs/PROJECT_V2.md) for the full setup walkthrough, including the local-dev → physical-server migration path.
@@ -98,7 +98,7 @@ See [docs/PROJECT_V2.md §15](docs/PROJECT_V2.md) for the full setup walkthrough
 | Target | What it does |
 |---|---|
 | `make install` | Create `.venv` and install the package + dev deps |
-| `make dev` | Run FastAPI with `--reload` on :8000 |
+| `make dev` | Run FastAPI with `--reload` on :8100 |
 | `make run` | Run FastAPI (no reload) |
 | `make test` | Run `pytest tests/` |
 | `make lint` | `ruff check` + `ruff format --check` |

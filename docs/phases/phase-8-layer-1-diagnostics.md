@@ -71,7 +71,7 @@ make test
 # expect: HTML message in <1 s with sections: Health snapshot, Recent issues, Suggested actions
 # expect: footer reads "Layer 1 · <N> ms · 0 tokens"
 # Verify token metric:
-curl -s http://localhost:8000/metrics | grep llm_tokens_total
+curl -s http://localhost:8100/metrics | grep llm_tokens_total
 # expect: no change after running /report
 
 # 4. /logs <name>

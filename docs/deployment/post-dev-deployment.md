@@ -85,7 +85,7 @@ chmod 600 .env
 |---|---|---|---|
 | `MONGO_URL` | `mongodb://localhost:27017` | `mongodb://localhost:27017` | Same — host-level mongo on the server works |
 | `MONGO_DB_NAME` | `devops_agent` | `devops_agent` | Isolated DB |
-| `AGENT_PORT` *(add this)* | `8000` (or unused) | **`8100`** | port 8000 is already owned by `voice-auth-backend` |
+| `AGENT_PORT` | `8100` | `8100` | Unified everywhere — `voice-auth-backend` owns 8000 on this host, so 8100 is used on Mac dev too |
 | `TELEGRAM_BOT_TOKEN` | your Mac test bot | same token (or a separate prod bot) | your call |
 | `ALLOWED_TELEGRAM_USERS` | your TG ID | same | |
 | `PEM_DIR` | `/devops_agent/pem` | `/devops_agent/pem` | Same convention |

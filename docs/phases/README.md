@@ -20,8 +20,8 @@ docs/completed/<phase>.md       ← frozen record of what shipped
 | # | Phase | Status | File |
 |---|---|---|---|
 | 0  | Environment & scaffolding             | ✅ COMPLETED   | [`../completed/phase-0-environment-scaffolding.md`](../completed/phase-0-environment-scaffolding.md) |
-| 1  | Config, logging, Mongo plumbing       | ⚪ QUEUED      | [`phase-1-config-logging-mongo.md`](phase-1-config-logging-mongo.md) |
-| 2  | GitHub layer (cache + tool registry)  | ⚪ QUEUED      | [`phase-2-github-layer.md`](phase-2-github-layer.md) |
+| 1  | Config, logging, Mongo plumbing       | ✅ COMPLETED   | [`../completed/phase-1-config-logging-mongo.md`](../completed/phase-1-config-logging-mongo.md) |
+| 2  | GitHub layer (cache + tool registry)  | ✅ COMPLETED   | [`../completed/phase-2-github-layer.md`](../completed/phase-2-github-layer.md) |
 | 3  | Telegram bot shell + GitHub commands  | ⚪ QUEUED      | [`phase-3-telegram-bot-shell.md`](phase-3-telegram-bot-shell.md) |
 | 4  | Server registry + Docker context      | ⚪ QUEUED      | [`phase-4-server-registry-docker-context.md`](phase-4-server-registry-docker-context.md) |
 | 5  | Deploy pipeline (build → push → pull → run) | ⚪ QUEUED | [`phase-5-deploy-pipeline.md`](phase-5-deploy-pipeline.md) |
@@ -45,4 +45,6 @@ Each phase doc follows a standard template (see `../completed/phase-0-environmen
 
 ## Next up
 
-**Phase 1** is the next queued phase. It delivers the FastAPI app + MongoDB connection + structured logging + `.env` secrets check — everything needed before any business logic.
+**Phase 3** is the next queued phase. It delivers the Telegram bot shell — `python-telegram-bot v21+`, inline-mode entity search, keyboard fallback, "did you mean?" fuzzy resolution, and the six GitHub commands (`/repos`, `/branches`, `/commits`, `/prs`, `/files`, `/refresh`) wired to the Phase 2 tools. Still 0 LLM calls.
+
+**Prerequisite before starting Phase 3:** create a Telegram bot via @BotFather and add `TELEGRAM_BOT_TOKEN` + `ALLOWED_TELEGRAM_USERS` to `.env`. See `docs/PROJECT_V2.md` §22.9 for the BotFather setup steps.
