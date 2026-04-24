@@ -1365,7 +1365,8 @@ OPTIONAL AI FEATURES (flag-controlled)
 
 ### 14.2 Allow / deny lists
 
-- **Allowlist**: Telegram user IDs (integers from `message.from_user.id`) that may issue commands
+- **User allowlist — GitHub-org-gated self-enrollment.** First-time users DM the bot, reply with their GitHub username, and the agent calls `org.has_in_members(user)` against `settings.GITHUB_ORG`. Verified users are upserted into the Mongo `users` collection (§20) with their Telegram ID, Telegram username, GitHub handle, `status=active`, and `role=member`. A background task re-verifies org membership every 24 h — members who leave the GitHub org are auto-revoked. `FIRST_ADMIN_TELEGRAM_ID` env var bootstraps the first admin; subsequent admins promoted via `/users promote @handle`.
+- **Emergency bypass**: `ALLOWED_TELEGRAM_USERS` env var is a comma-separated list of Telegram IDs that skip enrollment. Intended for cold-boot scenarios (Mongo down, admin locked out). Logged as a warning on use.
 - **Allowlist**: GitHub orgs / repos the agent may touch
 - **Denylist**: container names that may never be stopped/deleted via chat (`mongo`, `agent`, `traefik`)
 - **Denylist**: host paths that may not be mounted into deployed containers
@@ -1785,6 +1786,36 @@ clean:
 ---
 
 ## 20. Data Model (MongoDB)
+
+### `users` (authorized Telegram users — GitHub-org-gated enrollment, §14.2)
+```json
+{
+  "_id": 222333444,
+  "telegram_username": "alice_dev",
+  "telegram_first_name": "Alice",
+  "github_username": "alicegithub",
+  "github_org": "GradScalerTeam",
+  "status": "active",
+  "role": "member",
+  "enrolled_by": "self",
+  "enrolled_at": ISODate,
+  "last_seen": ISODate,
+  "last_verified": ISODate,
+  "revoked_reason": null
+}
+```
+Indexes: unique on `github_username` (one Telegram acct ↔ one GitHub handle); compound `(status, last_verified)` for the 24-hour re-verification sweep.
+
+### `pending_enrollments` (short-lived enrollment conversation state)
+```json
+{
+  "_id": 222333444,
+  "awaiting": "github_username",
+  "attempts": 0,
+  "created_at": ISODate
+}
+```
+TTL 24 h on `created_at` — abandoned enrollments auto-purge.
 
 ### `servers`
 ```json

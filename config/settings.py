@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     # ---- Stage 1: GitHub ----
     GITHUB_TOKEN: str
     GITHUB_ORG: str
+    # User-facing project/brand name shown in Telegram messages. Defaults to the
+    # GitHub org if not set. Set this to a friendly product name like "CIChakra"
+    # so enrollment messages read naturally, while GITHUB_ORG stays the technical
+    # identifier for API calls.
+    PROJECT_DISPLAY_NAME: str = ""
 
     # ---- Stage 1: OpenAI ----
     # Defaults to empty — Phase 10 (`utils/llm.py`) validates when the LLM is
@@ -54,8 +59,12 @@ class Settings(BaseSettings):
 
     # ---- Stage 2: Telegram ----
     TELEGRAM_BOT_TOKEN: str = ""
+    # Bootstrap admin — the Telegram user ID that gets role=admin on first enrollment.
+    # After that, admins promote others via `/users promote @handle`.
+    FIRST_ADMIN_TELEGRAM_ID: int | None = None
     # NoDecode: pydantic-settings tries JSON-parsing lists by default; our
     # validator below handles the comma-separated string form instead.
+    # Emergency bypass list — skips the users-collection check. Log warning on use.
     ALLOWED_TELEGRAM_USERS: Annotated[list[int], NoDecode] = Field(default_factory=list)
 
     # ---- Stage 3: Paths ----
@@ -76,6 +85,10 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return v.upper()
         return v
+
+    def display_name(self) -> str:
+        """User-facing brand name — falls back to GITHUB_ORG if unset."""
+        return self.PROJECT_DISPLAY_NAME or self.GITHUB_ORG
 
 
 settings = Settings()  # type: ignore[call-arg]

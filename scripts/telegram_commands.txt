@@ -1,0 +1,10 @@
+start - Start or re-enroll
+help - Show available commands
+whoami - Show your enrollment info
+repos - List all repos in the org
+branches - List branches for a repo
+commits - Recent commits on a branch
+prs - Open pull requests for a repo
+files - Check key files in a repo
+refresh - Force-refresh the GitHub cache
+users - List enrolled users (admin subcommands)

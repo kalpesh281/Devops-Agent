@@ -23,12 +23,16 @@ from fastapi import FastAPI
 import tools.github_tools  # noqa: F401  # side-effect: @tool decorators register
 from api.routes import health, metrics
 from config.settings import settings
+from telegram_bot.bot import start_bot, stop_bot
+from utils import user_reverifier
 from utils.github_cache import cache as github_cache
 from utils.logger import configure_logging, get_logger
 from utils.mongo import close as close_mongo
 from utils.mongo import ensure_indexes
 from utils.mongo import ping as mongo_ping
 from utils.secrets_check import verify_env_security
+from utils.user_registry import ensure_indexes as ensure_user_indexes
+from utils.user_registry import refresh_cache as refresh_user_cache
 
 configure_logging(settings.LOG_LEVEL)
 log = get_logger(__name__)
@@ -52,6 +56,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         log.info("mongo.connected", db=settings.MONGO_DB_NAME)
         try:
             await ensure_indexes()
+            await ensure_user_indexes()
+            await refresh_user_cache()
         except Exception as e:  # noqa: BLE001 — log and continue; /health reports status
             log.error("mongo.index_ensure_failed", error=str(e))
     else:
@@ -61,11 +67,17 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     github_cache.spawn(interval_seconds=300)
     log.info("github_cache.spawned", interval_seconds=300)
 
+    # Phase 3 — Telegram bot + 24h user reverifier.
+    await start_bot()
+    user_reverifier.start()
+
     log.info("startup.complete")
     try:
         yield
     finally:
         log.info("shutdown.begin")
+        await stop_bot()
+        await user_reverifier.stop()
         await github_cache.stop()
         await close_mongo()
         log.info("shutdown.complete")
