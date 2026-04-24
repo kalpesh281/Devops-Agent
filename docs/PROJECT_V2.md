@@ -1505,7 +1505,7 @@ Actor format: `telegram:<username>` if the Telegram user has a username, else `t
 
 - **Structured audit log** in Mongo (every action: actor, tier, result, duration)
 - **Prometheus `/metrics`**: deploys_total, tool_calls_total, llm_tokens_total, container_restarts_total, image_cleanup_total
-- **FastAPI `/health`** liveness endpoint
+- **FastAPI `/health`** liveness endpoint — binds on `$AGENT_PORT` (default 8100 on the physical server, 8000 locally). The default is 8100 because the production host already runs other services on 8000.
 - **Per-deployment healthchecks** after every `docker run`
 - **Scheduled health pings** every 5 min, alerts to Telegram on red
 - **structlog** for JSON-formatted application logs to stdout
@@ -1764,10 +1764,10 @@ install:
 	. .venv/bin/activate && pip install -e ".[dev]"
 
 dev:
-	. .venv/bin/activate && uvicorn api.main:app --reload --port 8000
+	. .venv/bin/activate && uvicorn api.main:app --reload --host 0.0.0.0 --port $${AGENT_PORT:-8100}
 
 run:
-	. .venv/bin/activate && uvicorn api.main:app --port 8000
+	. .venv/bin/activate && uvicorn api.main:app --host 0.0.0.0 --port $${AGENT_PORT:-8100}
 
 test:
 	. .venv/bin/activate && pytest tests/

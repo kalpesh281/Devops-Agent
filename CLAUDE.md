@@ -42,7 +42,7 @@ Every tool is tagged with a tier in `config/tool_tiers.yml`:
 
 - **auto** — GitHub queries, logs, inspect, report, status, health, images → execute immediately
 - **notify** — deploy, restart, redeploy → execute and post a notification
-- **approval** — stop, rollback, remove-images, cleanup, delete-deployment → LangGraph interrupt → Discord button → resume
+- **approval** — stop, rollback, remove-images, cleanup, delete-deployment → LangGraph interrupt → Telegram inline-keyboard button → typed-keyword confirmation (`ACTION NAME`, 60s timeout) → resume
 
 The Mongo checkpointer (`langgraph-checkpoint-mongodb`) is load-bearing here: approval interrupts must survive agent restarts. A TTL index expires checkpoints after 7 days. Denylist (e.g. `mongo`, `agent`, `traefik`) overrides tier — these can never be stopped/deleted via chat regardless of approval.
 
@@ -90,8 +90,10 @@ After every successful deploy: always keep the running image + everything in `de
 - **`.env` and PEM permission check** runs at startup via `utils/secrets_check.py`; warns loudly on permissive modes.
 - **`deploy.config.yml`** is validated with Pydantic (`model_config = {"extra": "forbid"}`); unknown fields are errors. Use rapidfuzz to suggest "did you mean" corrections.
 - **Token budgets** are hard-capped per call in `config/token_limits.py`; truncate inputs that exceed them rather than letting costs run.
-- **Discord long operations** edit a single message in place (see spec §11.6). Do not spam the channel with one message per step.
-- **Color palette** is centralized in `discord_bot/colors.py`; use it rather than hardcoding hex values in embeds.
+- **Long operations** edit a single Telegram message in place via `context.bot.edit_message_text` (spec §11.6). Do not spam the chat with one message per step.
+- **Emoji palette** is centralized in `telegram_bot/colors.py` (🟢🟡🟠🔴🔵🟣⚪); use it rather than hardcoding emoji or status strings.
+- **Persistent logs** — every running deployment has a 60s background scraper (spec §9.3) that flushes to `container_logs` (TTL 7d) and runs the rule engine into `diagnostic_events` (TTL 30d). `/logs` and `/history` read from Mongo; `/report` can bypass the cache with a live `docker logs` call when freshness matters.
+- **Destructive ops require typed confirmation** — button tap alone is not enough. User must type the full `ACTION NAME` form (e.g. `STOP trading-dashboard`) within 60s. Timeouts + mismatches are audit-logged as `aborted_typed_confirm_*`.
 
 ## Security
 

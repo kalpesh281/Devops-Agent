@@ -1,6 +1,6 @@
 # DevOps AI Agent (v2)
 
-A conversational AI agent (Discord bot) that manages GitHub repositories and Docker deployments across multiple servers — your physical server plus client-specific AWS EC2 instances. Built with **LangGraph**, **FastAPI**, **OpenAI GPT-5.4-nano**, and the **Docker SDK**.
+A conversational AI agent (Telegram bot) that manages GitHub repositories and Docker deployments across multiple servers — your physical server plus client-specific AWS EC2 instances. Built with **LangGraph**, **FastAPI**, **OpenAI GPT-5.4-nano**, and the **Docker SDK**.
 
 > **Design philosophy:** AI-enabled, not AI-dependent. Core features (listing, deploying, logs, diagnostics, rollback) use **zero LLM calls**. AI is an opt-in layer on top — free-text chat, pre-deploy config analysis, and on-demand root-cause hypothesis. Disable all AI with config flags and the tool still works end-to-end.
 
@@ -10,14 +10,15 @@ See [docs/PROJECT_V2.md](docs/PROJECT_V2.md) for the full specification.
 
 ## Features
 
-- **Discord-first UX** — slash commands with fuzzy-matched autocomplete, buttons, embeds, paginated logs
+- **Telegram-first conversational UX** — commands, inline-mode entity search, inline-keyboard selection, callback-query buttons, paginated logs
 - **Multi-target deploys** — physical server + N client AWS EC2 instances, resolved per deploy
 - **Build → Push → Pull → Run** pipeline using Docker Hub
 - **Full image lifecycle** — `/deploy`, `/rollback`, `/images`, `/remove-images`, auto-cleanup after each deploy
-- **Layer 1 diagnostics** — `docker inspect` + `docker logs` → structured markdown reports (0 tokens)
-- **Layer 2 AI hypothesis** — `/explain` for on-demand root-cause analysis (~250 tokens/call)
+- **Two-layer diagnostics** — `/report` (rule engine, 0 tokens) + `/explain` (LLM hypothesis, ~250 tokens)
+- **Persistent log ingestion** — per-deployment background scraper → Mongo, browsable via `/history`
+- **Readable UI** — emoji-coded HTML messages, level/time filters, cluster summaries
 - **Pre-deploy config check** — optional Dockerfile + `deploy.config.yml` review (~550 tokens/deploy)
-- **Tiered authorization** — auto / notify / approval, with LangGraph human-in-the-loop interrupts for destructive ops
+- **Tiered authorization** — auto / notify / approval, with typed-keyword confirmation for destructive ops
 - **Audit log** in MongoDB — actor, action, tier, result, duration
 - **LangGraph Mongo checkpointing** — resumes across restarts
 - **Container hardening** — read-only FS, cap-drop, resource limits by default
@@ -33,7 +34,7 @@ See [docs/PROJECT_V2.md](docs/PROJECT_V2.md) for the full specification.
 | API | FastAPI (`/health`, `/metrics`) |
 | Agent | LangGraph 1.0+ |
 | LLM | OpenAI GPT-5.4-nano |
-| Discord | discord.py 2.x |
+| Telegram | python-telegram-bot v21+ |
 | GitHub | PyGithub |
 | Docker | `docker` SDK for Python + BuildKit |
 | DB | MongoDB (motor) |
@@ -50,8 +51,8 @@ See [docs/PROJECT_V2.md](docs/PROJECT_V2.md) for the full specification.
 ### Prerequisites
 - Python 3.11+
 - Docker + Docker Hub account
-- MongoDB (local or remote)
-- Discord bot token, GitHub PAT, OpenAI API key
+- MongoDB (local or remote / Atlas)
+- Telegram bot token (via @BotFather), GitHub PAT, OpenAI API key
 
 ### Setup
 
@@ -70,7 +71,8 @@ pip install -e ".[dev]"
 # 3. Configure environment
 cp .env.example .env
 chmod 600 .env
-# fill in DISCORD_TOKEN, GITHUB_TOKEN, OPENAI_API_KEY, MONGO_URI, DOCKERHUB_*
+# fill in TELEGRAM_BOT_TOKEN, ALLOWED_TELEGRAM_USERS, GITHUB_TOKEN,
+# OPENAI_API_KEY, MONGO_URL, DOCKER_HUB_USER, DOCKER_HUB_TOKEN
 
 # 4. Set up PEM folder
 sudo mkdir -p /devops_agent/pem
@@ -111,9 +113,9 @@ See [docs/PROJECT_V2.md §15](docs/PROJECT_V2.md) for the full setup walkthrough
 .
 ├── agents/          # LangGraph nodes + graph wiring
 ├── api/             # FastAPI app (health, metrics, webhooks)
-├── discord_bot/     # discord.py cogs, slash commands, UI
+├── telegram_bot/    # python-telegram-bot handlers, keyboards, messages
 ├── tools/           # github_*, docker_*, server_*, diagnose_*, image_*
-├── utils/           # mongo, llm, docker context, fuzzy, log analyzer...
+├── utils/           # mongo, llm, docker context, fuzzy, log_scraper, log analyzer...
 ├── config/          # schemas, example configs
 ├── docs/            # architecture, security, runbook
 ├── tests/           # unit, integration, eval
