@@ -1,6 +1,6 @@
 # DevOps AI Agent — v2 (Production-Hardened)
 
-A conversational AI agent (Discord bot) that manages GitHub repositories and Docker deployments across multiple servers — your physical server plus client-specific AWS EC2 instances. Built with LangGraph, FastAPI, OpenAI GPT-5.4-nano, and the Docker SDK.
+A conversational AI agent (Telegram bot) that manages GitHub repositories and Docker deployments across multiple servers — your physical server plus client-specific AWS EC2 instances. Built with LangGraph, FastAPI, OpenAI GPT-5.4-nano, and the Docker SDK.
 
 **Design philosophy:** AI-enabled, not AI-dependent. Core features (listing, deploying, logs, diagnostics, rollback) use zero LLM calls. AI is a set of opt-in features layered on top — free-text chat, pre-deploy config analysis, and on-demand root-cause hypothesis. You can disable all AI with config flags and the tool still works end-to-end.
 
@@ -30,12 +30,12 @@ Bot: 🟡 trading-dashboard — Running with errors
      Issues: MongoDB timeouts detected — check mongo health
      [Explain with AI] [View raw logs] [Restart]
 
-You: click "Explain with AI"
-Bot: 🤖 AI Analysis — trading-dashboard
+You: tap "Explain with AI"
+Bot: 🟣 AI Analysis — trading-dashboard
      The container is running but experiencing frequent MongoDB timeouts.
      The pattern suggests the mongo container is unhealthy.
      Recommended: /report mongo → if unhealthy, /restart mongo
-     GPT-5.4-nano • 247 tokens • ~$0.0001
+     GPT-5.4-nano • 247 tokens • ~$0.00015
 ```
 
 ---
@@ -43,9 +43,9 @@ Bot: 🤖 AI Analysis — trading-dashboard
 ## 2. Goals & Non-Goals
 
 ### Goals (v2)
-- Single-user (you) personal DevOps agent, controlled via Discord
+- Single-user (you) personal DevOps agent, controlled via Telegram
 - **Multi-target deployment**: physical server + N client AWS EC2 instances
-- Slash commands with fuzzy-matched autocomplete over a cached repo/branch list (0 tokens)
+- Commands with inline-mode entity search over a cached repo/branch list (0 tokens for the search itself)
 - Build → Push → Pull → Run pipeline using Docker Hub
 - `/rollback`, `/images`, `/remove-images` — full image lifecycle management
 - Layer 1 diagnostics: `docker inspect` + `docker logs` → structured markdown reports (0 tokens)
@@ -58,14 +58,14 @@ Bot: 🤖 AI Analysis — trading-dashboard
 - LangGraph Mongo checkpointing (resume across restarts)
 - Auto-cleanup of unused Docker images after every deploy
 - Container hardening defaults (read-only FS, cap-drop, resource limits)
-- Discord UI layer: color-coded Embeds, paginated logs, button interactions
+- Telegram UI layer: emoji-coded HTML messages, paginated logs via inline keyboards, callback-query button interactions
 - `deploy.config.yml` schema validation with friendly error messages
 - `.env` startup security check
 - Tests + CI + docs + demo asset
 
 ### Non-Goals (v3+)
 - Multi-user / multi-tenant
-- Web dashboard (Discord-only for v2)
+- Web dashboard (Telegram-only for v2)
 - Custom domains + SSL automation
 - Kubernetes
 - Auto-scaling
@@ -86,8 +86,8 @@ Bot: 🤖 AI Analysis — trading-dashboard
 | LLM | **OpenAI GPT-5.4-nano** | Cheap intent parsing + pre-deploy review + `/explain` |
 | GitHub client | **PyGithub** | Covers all read endpoints |
 | Docker client | **`docker` SDK for Python** | Native Docker context support |
-| Discord client | **discord.py 2.x** | Slash commands + autocomplete + buttons + Embeds |
-| Fuzzy matching | **rapidfuzz** | C-accelerated fuzzy matching for autocomplete |
+| Telegram client | **python-telegram-bot v21+** | Commands + inline keyboards + callback queries + inline mode |
+| Fuzzy matching | **rapidfuzz** | C-accelerated fuzzy matching for entity selection |
 | UI helpers | **tabulate**, **rich** | ASCII tables + rich text rendering |
 | Database | **MongoDB** + `motor` | State, audit log, checkpoints |
 | Tests | **pytest** + `pytest-asyncio` | Unit + integration + eval |
@@ -102,19 +102,19 @@ Bot: 🤖 AI Analysis — trading-dashboard
 
 ```
                     ┌─────────────┐
-                    │  Discord    │
-                    │  (you chat) │
+                    │  Telegram   │
+                    │    (DM)     │
                     └──────┬──────┘
                            │
                            ▼
                   ┌──────────────────┐         ┌──────────────────┐
-                  │  Discord bot     │────────▶│  GitHub API      │
-                  │  discord.py      │  cache  │  (PyGithub)      │
+                  │  Telegram bot    │────────▶│  GitHub API      │
+                  │python-telegram-bot│ cache  │  (PyGithub)      │
                   │                  │         └──────────────────┘
-                  │  • Slash cmds    │
-                  │    (autocomplete)│         ┌──────────────────┐
-                  │  • Buttons       │────────▶│  OpenAI          │
-                  │  • Embeds        │ opt-in  │  GPT-5.4-nano    │
+                  │  • Commands      │
+                  │  • Inline kbd    │         ┌──────────────────┐
+                  │  • Inline mode   │────────▶│  OpenAI          │
+                  │  • HTML messages │ opt-in  │  GPT-5.4-nano    │
                   │  • Paginators    │         └──────────────────┘
                   └────────┬─────────┘
                            │
@@ -300,10 +300,10 @@ chmod 600 /devops_agent/pem/physical.pem
                │
                ▼
        ┌───────────────┐
-       │ route_input   │  ← slash command vs free-text
+       │ route_input   │  ← command vs free-text
        └───┬───────┬───┘
            │       │
-   slash   │       │  free-text
+ command   │       │  free-text
            │       ▼
            │  ┌───────────────┐
            │  │ parse_intent  │  ← LLM call #1 (~230 tokens)
@@ -322,15 +322,21 @@ chmod 600 /devops_agent/pem/physical.pem
           │ interrupt │  └─────────┬────────┘
           └─────┬─────┘            │
                 │                  │
-                └──────────┬───────┘
-                           ▼
+                ▼                  │
+       ┌─────────────────┐         │   ← only for approval-tier ops
+       │ typed_confirm   │         │     user must type "ACTION NAME"
+       │    interrupt    │         │     within 60s (OD-L6)
+       └────────┬────────┘         │
+                │                  │
+                └────────┬─────────┘
+                         ▼
                   ┌────────────────┐
                   │ execute_tool   │
                   └────────┬───────┘
                            │
                            ▼
                   ┌────────────────┐
-                  │ format_response│  ← Discord Embed / templated, no LLM
+                  │ format_response│  ← Telegram HTML message / templated, no LLM
                   └────────┬───────┘
                            │
                            ▼
@@ -353,11 +359,11 @@ from datetime import datetime
 
 class AgentState(TypedDict):
     user_message: str
-    discord_user_id: str
-    discord_channel_id: str
+    platform_user_id: str
+    platform_chat_id: str
     trace_id: str
 
-    input_mode: Literal["slash", "free_text"]
+    input_mode: Literal["command", "free_text"]
     intent: Optional[str]
     intent_args: dict[str, Any]
     tool_name: Optional[str]
@@ -365,6 +371,10 @@ class AgentState(TypedDict):
 
     pending_approval: bool
     approved: Optional[bool]
+
+    typed_confirm_expected: Optional[str]       # e.g. "STOP trading-dashboard"
+    typed_confirm_received: Optional[str]       # populated when user replies
+    typed_confirm_deadline: Optional[datetime]
 
     target_server: Optional[str]
     tool_results: list[dict]
@@ -439,52 +449,53 @@ await db.checkpoints.create_index("created_at", expireAfterSeconds=604800)
 
 ### GitHub queries (auto tier, 0 tokens)
 
-| Command | Autocomplete | Action |
+| Command | Selection UX | Action |
 |---|---|---|
 | `/repos` | — | List repos in org (from cache) |
-| `/branches <repo>` | repo | List branches for a repo |
-| `/commits <repo> <branch>` | repo, branch | Recent commits (default 10) |
-| `/prs <repo>` | repo | Open pull requests |
-| `/files <repo> <branch>` | repo, branch | Show key files (Dockerfile, package.json, etc.) |
+| `/branches <repo>` | inline mode · keyboard | List branches for a repo |
+| `/commits <repo> <branch>` | inline mode · keyboard | Recent commits (default 10) |
+| `/prs <repo>` | inline mode · keyboard | Open pull requests |
+| `/files <repo> <branch>` | inline mode · keyboard | Show key files (Dockerfile, package.json, etc.) |
 | `/refresh` | — | Force-refresh the GitHub cache |
 
 ### Deployment (notify tier)
 
-| Command | Autocomplete | Action |
+| Command | Selection UX | Action |
 |---|---|---|
-| `/deploy <repo> <branch>` | repo, branch | Build → push → pull → run → cleanup |
-| `/redeploy <name>` | name | Pull latest + restart |
-| `/restart <name>` | name | Restart container |
-| `/status` | — | Grouped deployments by target server (ASCII table Embed) |
-| `/status <server>` | server | Filter by one server |
+| `/deploy <repo> <branch>` | inline mode · keyboard | Build → push → pull → run → cleanup |
+| `/redeploy <name>` | inline mode · keyboard | Pull latest + restart |
+| `/restart <name>` | inline mode · keyboard | Restart container |
+| `/status` | — | Grouped deployments by target server (ASCII table in `<pre>`) |
+| `/status <server>` | keyboard | Filter by one server |
 | `/servers` | — | List registered target servers |
-| `/disk <server>` | server | `docker system df` on a target |
+| `/disk <server>` | keyboard | `docker system df` on a target |
 
 ### Destructive (approval tier, HITL button)
 
-| Command | Autocomplete | Action |
+| Command | Selection UX | Action |
 |---|---|---|
-| `/stop <name>` | name | Stop deployment |
-| `/rollback <name>` | name | Roll back to previous image (5-6s) |
-| `/remove-images <name>` | name | Remove all images except current + previous 1 |
-| `/cleanup <server>` | server | Manual image cleanup pass |
-| `/delete-deployment <name>` | name | Stop + remove deployment record |
+| `/stop <name>` | inline mode · keyboard | Stop deployment |
+| `/rollback <name>` | inline mode · keyboard | Roll back to previous image (5-6s) |
+| `/remove-images <name>` | inline mode · keyboard | Remove all images except current + previous 1 |
+| `/cleanup <server>` | keyboard | Manual image cleanup pass |
+| `/delete-deployment <name>` | inline mode · keyboard | Stop + remove deployment record |
 
 ### Diagnostics (auto tier, 0 tokens)
 
-| Command | Autocomplete | Action |
+| Command | Selection UX | Action |
 |---|---|---|
-| `/logs <name>` | name | Paginated raw logs with ◀️▶️ buttons |
-| `/inspect <name>` | name | Parsed `docker inspect` Embed |
-| `/health <name>` | name | Uptime + restart count + health status |
-| `/report <name>` | name | Full Layer 1 diagnostic Embed (inspect + logs + rules) |
-| `/images <name>` | name | List last 5 image versions with buttons |
+| `/logs <name>` | inline mode · keyboard | Paginated logs from Mongo with level/time filters (§11.3) |
+| `/inspect <name>` | inline mode · keyboard | Parsed `docker inspect` HTML message |
+| `/health <name>` | inline mode · keyboard | Uptime + restart count + health status |
+| `/report <name>` | inline mode · keyboard | Full Layer 1 diagnostic message (inspect + logs + rules) |
+| `/history <name>` | inline mode · keyboard | Browsable diagnostic event timeline (§11.8) |
+| `/images <name>` | inline mode · keyboard | List last 5 image versions with buttons |
 
 ### AI-powered (opt-in, tokens used)
 
-| Command | Autocomplete | Tokens | Action |
+| Command | Selection UX | Tokens | Action |
 |---|---|---|---|
-| `/explain <name>` | name | ~250 | Layer 1 report + LLM hypothesis |
+| `/explain <name>` | inline mode · keyboard | ~250 | Layer 1 report + LLM hypothesis |
 
 ### Identifier resolution (for any `<name>` arg)
 
@@ -614,13 +625,98 @@ root cause and next action. Be specific. No fluff.
 
 **Tokens:** ~150 input + ~100 output = ~250 total per call.
 
+### 9.3 Persistent log ingestion
+
+Layer 1 runs on-demand against live `docker logs`. For history/trends and background error detection, the agent also runs a **per-deployment background scraper** that flushes logs to Mongo at a configurable cadence.
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Background task per running deployment                      │
+│ (asyncio.Task spawned on startup, cancelled on /stop)       │
+│                                                             │
+│ 1. Poll every 60s (OD-L1)                                   │
+│    docker logs --since=<last_flush_ts> --timestamps         │
+│                                                             │
+│ 2. Insert new lines → Mongo `container_logs` (TTL 7d)       │
+│                                                             │
+│ 3. Run §9.1 rule engine on the delta                        │
+│    → matched rules → `diagnostic_events` (TTL 30d)          │
+│                                                             │
+│ 4. If severity ≥ error AND ENABLE_LOG_ALERTS                │
+│    → send Telegram alert                                    │
+│    → rate-limited: 1/min per deployment                     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Code sketch:**
+
+```python
+# utils/log_scraper.py
+import asyncio
+from datetime import datetime, timedelta
+from utils.event_detector import detect_events
+from utils.mongo import db
+
+POLL_INTERVAL = 60  # OD-L1
+
+class LogScraper:
+    def __init__(self, deployment_id: str, docker_client, target_server: str):
+        self.deployment = deployment_id
+        self.docker = docker_client
+        self.server = target_server
+        self.last_flush = datetime.utcnow() - timedelta(seconds=POLL_INTERVAL)
+
+    async def run(self):
+        while True:
+            try:
+                await self._flush_once()
+            except Exception as e:
+                logger.error(f"scraper error for {self.deployment}: {e}")
+            await asyncio.sleep(POLL_INTERVAL)
+
+    async def _flush_once(self):
+        container = self.docker.containers.get(self.deployment)
+        raw = container.logs(
+            since=int(self.last_flush.timestamp()),
+            timestamps=True,
+            stream=False,
+        ).decode("utf-8", errors="replace")
+        self.last_flush = datetime.utcnow()
+
+        lines = [
+            parse_line(l, self.deployment, self.server)
+            for l in raw.splitlines() if l.strip()
+        ]
+        if not lines:
+            return
+
+        await db.container_logs.insert_many(lines)
+
+        # rule engine over the delta
+        events = detect_events(lines, self.deployment)
+        if events:
+            await db.diagnostic_events.insert_many(events)
+            await alert_if_needed(events)
+```
+
+**Freshness escape hatch:** `/logs <name>` and `/report <name>` may bypass the 60s cache with a live `docker logs` call for real-time data. The Mongo cache powers `/history`, trend detection, and the background alerting loop.
+
+**Storage budget:** ~1.5 MB/day per container. For 10 active containers with a 7-day TTL: ~100 MB in Mongo. Negligible.
+
 ---
 
-## 10. Slash Command Autocomplete + Fuzzy Resolution
+## 10. Entity Selection — Inline Mode + Fuzzy Keyboard
 
 ### 10.1 The insight
 
-Discord slash commands support **live autocomplete** per argument. As you type, the bot returns matching suggestions. Zero LLM calls. Everything is fuzzy-matched against an in-memory cache.
+Telegram doesn't do Discord-style per-argument live autocomplete. But it offers two primitives that — combined — give the same 0-token entity selection:
+
+1. **Inline mode** — the user types `@yourbot <query>` from any chat's compose box and gets a searchable dropdown that inserts the chosen value into the message.
+2. **Inline keyboards** — when the bot asks "pick a repo?" mid-conversation, it sends a top-10 fuzzy-matched keyboard; the user taps; a callback query carries the selection.
+
+Both read from the same in-memory rapidfuzz-backed cache. Neither needs the LLM.
 
 ### 10.2 GitHub cache (background-refreshed every 5 min)
 
@@ -654,143 +750,304 @@ class GitHubCache:
 cache = GitHubCache()
 ```
 
-### 10.3 Fuzzy autocomplete handlers
+### 10.3 Inline mode handler (entity search via `@yourbot <query>`)
 
 ```python
-# discord_bot/commands.py
+# telegram_bot/handlers.py
+from telegram import InlineQueryResultArticle, InputTextMessageContent
+from telegram.ext import InlineQueryHandler
 from rapidfuzz import process
 from utils.github_cache import cache
 
-@deploy_cmd.autocomplete("repo")
-async def repo_autocomplete(interaction, current: str):
-    if not current:
-        return [app_commands.Choice(name=r, value=r) for r in cache.repos[:25]]
-    matches = process.extract(current, cache.repos, limit=25)
-    return [
-        app_commands.Choice(name=name, value=name)
+async def inline_repo_search(update, context):
+    query = update.inline_query.query.strip()
+    if not query:
+        matches = [(r, 100, None) for r in cache.repos[:25]]
+    else:
+        matches = process.extract(query, cache.repos, limit=25)
+    results = [
+        InlineQueryResultArticle(
+            id=name,
+            title=name,
+            input_message_content=InputTextMessageContent(name),
+        )
         for name, score, _ in matches if score > 40
     ]
-
-@deploy_cmd.autocomplete("branch")
-async def branch_autocomplete(interaction, current: str):
-    repo = interaction.namespace.repo
-    if not repo or repo not in cache.branches:
-        return []
-    branches = cache.branches[repo]
-    if not current:
-        return [app_commands.Choice(name=b, value=b) for b in branches[:25]]
-    matches = process.extract(current, branches, limit=25)
-    return [
-        app_commands.Choice(name=name, value=name)
-        for name, score, _ in matches if score > 40
-    ]
+    await update.inline_query.answer(results, cache_time=60)
 ```
 
-**All entity arguments get autocomplete:** repo, branch, deployment name, server, PEM project. Everything reads from cached data + rapidfuzz.
+Registered once in `telegram_bot/bot.py`:
 
-### 10.4 Three input modes (all coexist)
+```python
+application.add_handler(InlineQueryHandler(inline_repo_search))
+```
+
+### 10.4 Keyboard fallback (in-conversation selection)
+
+When the bot replies to a conversational turn needing entity selection, it sends a top-10 keyboard with an "others…" paginator button for the tail.
+
+```python
+# telegram_bot/keyboards.py
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from rapidfuzz import process
+from utils.github_cache import cache
+
+def build_repo_keyboard(query: str, action: str) -> InlineKeyboardMarkup:
+    if query:
+        matches = process.extract(query, cache.repos, limit=10)
+        repos = [m[0] for m in matches if m[1] > 40]
+    else:
+        repos = cache.repos[:10]
+    rows = [[InlineKeyboardButton(r, callback_data=f"{action}:{r}")] for r in repos]
+    if len(cache.repos) > 10:
+        rows.append([InlineKeyboardButton("others…", callback_data=f"{action}:__more__")])
+    return InlineKeyboardMarkup(rows)
+```
+
+Branches, deployment names, and servers get analogous builders over the same cache + Mongo-backed lists.
+
+### 10.5 Fuzzy "did you mean?" for free-text commands
+
+On `/deploy trding-dashbord main`, if no exact match:
+
+```python
+from rapidfuzz import process
+
+def fuzzy_resolve(query: str, choices: list[str]) -> tuple[str, int] | None:
+    best = process.extractOne(query, choices, score_cutoff=60)
+    return (best[0], best[1]) if best else None
+
+# handler:
+hit = fuzzy_resolve(repo_arg, cache.repos)
+if not hit:
+    await update.message.reply_text(f"No match for <code>{repo_arg}</code>.", parse_mode="HTML")
+elif hit[0] != repo_arg:
+    kbd = InlineKeyboardMarkup([[
+        InlineKeyboardButton(f"yes, {hit[0]}", callback_data=f"confirm_deploy:{hit[0]}"),
+        InlineKeyboardButton("cancel", callback_data="cancel"),
+    ]])
+    await update.message.reply_text(
+        f"No exact match. Did you mean <b>{hit[0]}</b>?",
+        parse_mode="HTML",
+        reply_markup=kbd,
+    )
+```
+
+### 10.6 Three input modes (all coexist)
 
 | Mode | Trigger | Tokens | Latency |
 |---|---|---|---|
-| **Slash + autocomplete** | `/deploy repo:tra...` | 0 | ~instant |
-| **Slash typed fast** | `/deploy trading-dashboard main` | 0 | ~instant |
-| **Free-text chat** | "deploy the trading dashboard" | ~230 | ~1-2s |
+| **Inline mode entity search** | `@yourbot tra` in any chat | 0 | ~80–120 ms |
+| **Typed command + fuzzy resolve** | `/deploy trading-dashboard main` | 0 | ~80 ms |
+| **Conversational free-text** | "deploy the trading dashboard" | ~230 | ~1–2s |
 
 ---
 
-## 11. Discord UI Layer
+## 11. Telegram UI Layer
 
-Pure `discord.py 2.x` components + `tabulate` for tables. No extra Discord UI libraries.
+Pure `python-telegram-bot` v21+ primitives + `tabulate` for ASCII tables inside `<pre>` blocks. No extra UI libraries.
 
-### 11.1 Color palette (consistent across the bot)
+### 11.1 Emoji palette (consistent across the bot)
 
 ```python
-# discord_bot/colors.py
+# telegram_bot/colors.py
 class Colors:
-    SUCCESS = 0x34C759   # green
-    WARNING = 0xFFCC00   # yellow
-    ORANGE  = 0xFF9500   # orange
-    ERROR   = 0xFF3B30   # red
-    INFO    = 0x5865F2   # Discord blurple
-    AI      = 0x9B59B6   # purple (LLM output)
-    MUTED   = 0x8E8E93   # grey
+    SUCCESS = "🟢"
+    WARNING = "🟡"
+    ORANGE  = "🟠"
+    ERROR   = "🔴"
+    INFO    = "🔵"
+    AI      = "🟣"
+    MUTED   = "⚪"
 ```
 
-### 11.2 `/report` — color-coded diagnostic Embed
+Usage: prefix the status line / title with the emoji. Telegram messages have no color field — emoji is the color.
+
+### 11.2 `/report` — readable, structured diagnostic message
+
+Readable format with labelled sections: status header, health snapshot, recent issues, suggested actions, footer. Inline keyboard carries the next-step actions.
+
+**Rendered example:**
+
+```
+🟡 trading-dashboard — Running with errors
+
+📊 Health snapshot
+• Target:   physical-main
+• Uptime:   2h 14m · Restarts: 0
+• Memory:   340/512 MB (66%)
+• CPU:      12.3%
+• Health:   passing (5/5)
+
+⚠️ Recent issues (last 10 min)
+• 🔴 42× MongoDB connection timeout
+• 🟡  3× Unhandled rejection
+
+💡 Suggested actions
+1. /report mongo — check mongo health
+2. /restart mongo — if mongo is unhealthy
+3. /explain trading-dashboard — AI root-cause
+
+Layer 1 · 623 ms · 0 tokens
+
+[🤖 Explain with AI] [📜 Raw logs]
+[🔄 Restart]        [↩ Rollback]
+```
+
+**Code:**
 
 ```python
-# discord_bot/embeds.py
-def build_report_embed(inspect: dict, logs: dict, name: str) -> discord.Embed:
+# telegram_bot/messages.py
+from html import escape
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram_bot.colors import Colors
+
+def build_report_message(inspect: dict, logs: dict, name: str) -> tuple[str, InlineKeyboardMarkup]:
     if not inspect["running"]:
-        color, icon, status = Colors.ERROR, "🔴", f"Stopped (exit {inspect['exit_code']})"
+        icon, status = Colors.ERROR, f"Stopped (exit {inspect['exit_code']})"
     elif inspect["restart_count"] > 5:
-        color, icon, status = Colors.ORANGE, "🟠", f"Unstable ({inspect['restart_count']} restarts)"
+        icon, status = Colors.ORANGE, f"Unstable ({inspect['restart_count']} restarts)"
     elif logs["error_count"] > 10:
-        color, icon, status = Colors.WARNING, "🟡", "Running with errors"
+        icon, status = Colors.WARNING, "Running with errors"
     else:
-        color, icon, status = Colors.SUCCESS, "🟢", "Healthy"
+        icon, status = Colors.SUCCESS, "Healthy"
 
-    embed = discord.Embed(title=f"{icon} {name}", description=f"**Status:** {status}", color=color)
-    embed.add_field(name="Target", value=f"`{inspect['target_server']}`", inline=True)
-    embed.add_field(name="Uptime", value=format_uptime(inspect["uptime_seconds"]), inline=True)
-    embed.add_field(name="Restarts", value=str(inspect["restart_count"]), inline=True)
-    embed.add_field(name="Memory", value=f"{inspect['memory_mb']}/{inspect['memory_limit_mb']} MB", inline=True)
-    embed.add_field(name="CPU", value=f"{inspect['cpu_pct']:.1f}%", inline=True)
-    embed.add_field(name="Health", value=inspect.get("health_status", "—"), inline=True)
+    mem_pct = int(100 * inspect["memory_mb"] / inspect["memory_limit_mb"])
+    health_line = inspect.get("health_status", "—")
+    if inspect.get("health_failing_streak") is not None:
+        total = inspect.get("health_total_checks", 5)
+        passing = max(0, total - inspect["health_failing_streak"])
+        health_line = f"{health_line} ({passing}/{total})"
 
-    if logs["error_count"] > 0:
-        top = "\n".join(f"• **{c}x** `{e[:80]}`" for e, c in logs["top_errors"][:3])
-        embed.add_field(name=f"⚠️ Errors ({logs['error_count']})", value=top, inline=False)
+    sections = [
+        f"<b>{icon} {escape(name)} — {status}</b>",
+        "",
+        "<b>📊 Health snapshot</b>",
+        f"• Target:   <code>{inspect['target_server']}</code>",
+        f"• Uptime:   {format_uptime(inspect['uptime_seconds'])} · Restarts: {inspect['restart_count']}",
+        f"• Memory:   {inspect['memory_mb']}/{inspect['memory_limit_mb']} MB ({mem_pct}%)",
+        f"• CPU:      {inspect['cpu_pct']:.1f}%",
+        f"• Health:   {health_line}",
+    ]
 
-    embed.set_footer(text=f"Layer 1 • {inspect['duration_ms']}ms • 0 tokens")
-    return embed
+    if logs["error_count"] > 0 or logs["warn_count"] > 0:
+        sections += ["", "<b>⚠️ Recent issues (last 10 min)</b>"]
+        for pattern, count in logs["top_errors"][:3]:
+            lvl_icon = Colors.ERROR if count >= 10 else Colors.WARNING
+            sections.append(f"• {lvl_icon} {count}× <code>{escape(pattern[:80])}</code>")
+
+    suggestions = build_suggestions(inspect, logs, name)
+    if suggestions:
+        sections += ["", "<b>💡 Suggested actions</b>"]
+        for i, s in enumerate(suggestions, 1):
+            sections.append(f"{i}. {s}")
+
+    sections += ["", f"<i>Layer 1 · {inspect['duration_ms']} ms · 0 tokens</i>"]
+
+    kbd = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🤖 Explain with AI", callback_data=f"explain:{name}"),
+         InlineKeyboardButton("📜 Raw logs",        callback_data=f"logs:{name}:0")],
+        [InlineKeyboardButton("🔄 Restart",         callback_data=f"restart:{name}"),
+         InlineKeyboardButton("↩ Rollback",         callback_data=f"rollback:{name}")],
+    ])
+    return "\n".join(sections), kbd
 ```
 
-Buttons at the bottom: `[Explain with AI]`, `[View raw logs]`, `[Restart]`.
+### 11.3 `/logs` — readable line format + level/time filters
 
-### 11.3 `/logs` — paginated with button navigation
+Each line prefixed with an emoji (level) + short timestamp + trimmed message. Cluster summary at the bottom. Filter keyboard drives re-query against `container_logs` (§9.3), or falls back to a live `docker logs` call when freshness matters.
+
+**Rendered example:**
+
+```
+📜 Logs — trading-dashboard
+⏱ Last 5 min · 🔴 4 · 🟡 2 · 🔵 12 · 📊 18 lines
+
+🔴 12:34:57  MongoDB connection timeout
+🟡 12:34:58  Retrying mongo connection (2/5)
+🔴 12:35:02  MongoDB connection timeout
+🟡 12:35:03  Circuit breaker opened
+🔵 12:35:05  Fallback to cache (3 items)
+🔴 12:35:10  MongoDB connection timeout
+🔵 12:35:12  Request served from cache
+🔴 12:35:15  MongoDB connection timeout
+🔵 12:35:18  Health check passed
+
+Patterns
+▸ 4× MongoDB connection timeout
+▸ 2× Retrying mongo connection
+▸ 1× Circuit breaker opened
+
+[🔴 Errors only] [🟡 Warn+] [🔵 All]
+[⏱ 5m] [⏱ 1h] [⏱ 24h]
+[⏮] [◀] 1/4 [▶] [⏭]
+```
+
+**Code:**
 
 ```python
-# discord_bot/views.py
-class LogsPaginator(discord.ui.View):
-    def __init__(self, log_lines: list[str], name: str, page_size: int = 40):
-        super().__init__(timeout=300)
-        self.pages = [log_lines[i:i+page_size] for i in range(0, len(log_lines), page_size)]
-        self.current = 0
-        self.name = name
-        self._update_buttons()
+# telegram_bot/messages.py
+from html import escape
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram_bot.colors import Colors
+from utils.mongo import db
 
-    def render(self) -> str:
-        page = self.pages[self.current]
-        return (
-            f"**Logs — {self.name}** (page {self.current+1}/{len(self.pages)})\n"
-            f"```log\n" + "\n".join(page) + "\n```"
-        )
+LEVEL_ICON = {"ERROR": Colors.ERROR, "FATAL": Colors.ERROR,
+              "WARN": Colors.WARNING, "INFO": Colors.INFO}
 
-    @discord.ui.button(label="⏮", style=discord.ButtonStyle.secondary)
-    async def first(self, interaction, button):
-        self.current = 0
-        self._update_buttons()
-        await interaction.response.edit_message(content=self.render(), view=self)
+async def build_logs_message(
+    name: str, page: int, level_filter: str = "ALL", window: str = "5m",
+) -> tuple[str, InlineKeyboardMarkup]:
+    rows = await db.container_logs.find(
+        query_for(name, level_filter, window)
+    ).sort("timestamp", 1).to_list(length=1000)
 
-    @discord.ui.button(label="◀", style=discord.ButtonStyle.primary)
-    async def prev(self, interaction, button):
-        self.current = max(0, self.current - 1)
-        self._update_buttons()
-        await interaction.response.edit_message(content=self.render(), view=self)
+    counts = {"ERROR": 0, "WARN": 0, "INFO": 0}
+    for r in rows:
+        counts[r["level"]] = counts.get(r["level"], 0) + 1
 
-    @discord.ui.button(label="▶", style=discord.ButtonStyle.primary)
-    async def next(self, interaction, button):
-        self.current = min(len(self.pages) - 1, self.current + 1)
-        self._update_buttons()
-        await interaction.response.edit_message(content=self.render(), view=self)
+    # page slice — 30 lines per page
+    per_page, total_pages = 30, max(1, (len(rows) + 29) // 30)
+    slice_ = rows[page*per_page : (page+1)*per_page]
 
-    @discord.ui.button(label="⏭", style=discord.ButtonStyle.secondary)
-    async def last(self, interaction, button):
-        self.current = len(self.pages) - 1
-        self._update_buttons()
-        await interaction.response.edit_message(content=self.render(), view=self)
+    header = (
+        f"<b>📜 Logs — {escape(name)}</b>\n"
+        f"<i>⏱ Last {window} · {Colors.ERROR} {counts['ERROR']} · "
+        f"{Colors.WARNING} {counts['WARN']} · {Colors.INFO} {counts['INFO']} · "
+        f"📊 {len(rows)} lines</i>"
+    )
+    body = "\n".join(
+        f"{LEVEL_ICON.get(r['level'], Colors.MUTED)} "
+        f"<code>{r['timestamp'].strftime('%H:%M:%S')}</code>  "
+        f"{escape(r['line'][:140])}"
+        for r in slice_
+    )
+
+    # cluster summary (top 3)
+    clusters = top_clusters(rows, limit=3)
+    clusters_block = ""
+    if clusters:
+        lines = "\n".join(f"▸ <b>{c}×</b> {escape(t[:80])}" for t, c in clusters)
+        clusters_block = f"\n\n<b>Patterns</b>\n{lines}"
+
+    text = f"{header}\n\n{body}{clusters_block}"
+    kbd = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔴 Errors", callback_data=f"logs:{name}:f:ERROR"),
+         InlineKeyboardButton("🟡 Warn+",  callback_data=f"logs:{name}:f:WARN"),
+         InlineKeyboardButton("🔵 All",    callback_data=f"logs:{name}:f:ALL")],
+        [InlineKeyboardButton("⏱ 5m",  callback_data=f"logs:{name}:w:5m"),
+         InlineKeyboardButton("⏱ 1h",  callback_data=f"logs:{name}:w:1h"),
+         InlineKeyboardButton("⏱ 24h", callback_data=f"logs:{name}:w:24h")],
+        [InlineKeyboardButton("⏮", callback_data=f"logs:{name}:p:0"),
+         InlineKeyboardButton("◀", callback_data=f"logs:{name}:p:{max(0, page-1)}"),
+         InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"),
+         InlineKeyboardButton("▶", callback_data=f"logs:{name}:p:{min(total_pages-1, page+1)}"),
+         InlineKeyboardButton("⏭", callback_data=f"logs:{name}:p:{total_pages-1}")],
+    ])
+    return text, kbd
 ```
+
+Callback handler edits the same message in place via `context.bot.edit_message_text`. Long tracebacks are collapsed into the "Patterns" cluster summary rather than dumped inline.
 
 ### 11.4 `/status` — ASCII table via `tabulate`
 
@@ -808,106 +1065,242 @@ def build_status_message(deployments: list[dict]) -> str:
     ] for d in deployments]
     headers = ["Name", "Server", "Status", "Uptime", "⟳", "Image"]
     table = tabulate(rows, headers=headers, tablefmt="simple")
-    return f"**Deployments ({len(deployments)})**\n```\n{table}\n```"
+    return f"<b>Deployments ({len(deployments)})</b>\n<pre>{table}</pre>"
 ```
 
-### 11.5 `/images` — Embed + management buttons
+### 11.5 `/images` — HTML message + management keyboard
 
 ```python
-def build_images_embed(images: list[dict], name: str):
-    embed = discord.Embed(title=f"📦 Images for {name}", color=Colors.INFO)
+def build_images_message(images: list[dict], name: str) -> tuple[str, InlineKeyboardMarkup]:
+    lines = [f"<b>📦 Images for {escape(name)}</b>"]
     for i, img in enumerate(images):
-        marker = "▸ **current**" if i == 0 else "  previous" if i == 1 else "  old"
-        embed.add_field(
-            name=img["tag"][:12],
-            value=f"{marker}\nDeployed {time_ago(img['deployed_at'])}\nSize: {img['size_mb']} MB",
-            inline=True,
+        marker = "▸ <b>current</b>" if i == 0 else "  previous" if i == 1 else "  old"
+        lines.append(
+            f"\n<code>{img['tag'][:12]}</code> — {marker}\n"
+            f"Deployed {time_ago(img['deployed_at'])} · Size: {img['size_mb']} MB"
         )
-    return embed, ImageManagementView(name, images)
-
-
-class ImageManagementView(discord.ui.View):
-    def __init__(self, name: str, images: list[dict]):
-        super().__init__(timeout=180)
-        self.name, self.images = name, images
-
-    @discord.ui.button(label="Remove old", style=discord.ButtonStyle.danger, emoji="🗑")
-    async def remove_old(self, interaction, button):
-        # → triggers /remove-images flow with confirmation
-        ...
-
-    @discord.ui.button(label="Rollback", style=discord.ButtonStyle.primary, emoji="↩")
-    async def rollback(self, interaction, button):
-        # → triggers /rollback flow
-        ...
+    kbd = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🗑 Remove old", callback_data=f"images:remove:{name}")],
+        [InlineKeyboardButton("↩ Rollback",    callback_data=f"images:rollback:{name}")],
+    ])
+    return "\n".join(lines), kbd
 ```
 
 ### 11.6 Deploy — single self-updating message
 
-For long operations, the agent edits one message as each step completes instead of spamming the channel:
+For long operations, the agent edits one message as each step completes instead of spamming the chat:
 
 ```python
-async def deploy_with_streaming(interaction, repo, branch):
-    msg = await interaction.followup.send(embed=deploy_embed("🔄 Cloning repo...", Colors.INFO))
+async def deploy_with_streaming(update, context, repo, branch):
+    msg = await update.message.reply_text(
+        f"{Colors.INFO} Cloning repo…", parse_mode="HTML"
+    )
     await clone(repo, branch)
-    await msg.edit(embed=deploy_embed("✅ Cloned\n🔄 Building image...", Colors.INFO))
+    await context.bot.edit_message_text(
+        chat_id=msg.chat_id, message_id=msg.message_id,
+        text=f"✅ Cloned\n{Colors.INFO} Building image…",
+        parse_mode="HTML",
+    )
     await build(...)
-    await msg.edit(embed=deploy_embed("✅ Cloned\n✅ Built (12s)\n🔄 Pushing...", Colors.INFO))
-    # ... and so on, final edit turns green
-    await msg.edit(embed=deploy_embed(
-        "✅ Cloned (1s)\n"
-        "✅ Built (12s)\n"
-        "✅ Pushed (4s)\n"
-        "✅ Pulled on physical-main (2s)\n"
-        "✅ Running → http://server:4001\n"
-        "**Total: 22s**",
-        color=Colors.SUCCESS,
-    ))
+    await context.bot.edit_message_text(
+        chat_id=msg.chat_id, message_id=msg.message_id,
+        text=f"✅ Cloned\n✅ Built (12s)\n{Colors.INFO} Pushing…",
+        parse_mode="HTML",
+    )
+    # … and so on, final edit turns green
+    await context.bot.edit_message_text(
+        chat_id=msg.chat_id, message_id=msg.message_id,
+        text=(
+            "✅ Cloned (1s)\n"
+            "✅ Built (12s)\n"
+            "✅ Pushed (4s)\n"
+            "✅ Pulled on physical-main (2s)\n"
+            "✅ Running → http://server:4001\n"
+            "<b>Total: 22s</b>"
+        ),
+        parse_mode="HTML",
+    )
 ```
 
-### 11.7 `/explain` — purple AI Embed
+### 11.7 `/explain` — 🟣 AI message with token footer
 
 ```python
-def build_explain_embed(report: dict, llm_analysis: str, tokens_used: int):
-    embed = discord.Embed(
-        title=f"🤖 AI Analysis — {report['name']}",
-        description=llm_analysis,
-        color=Colors.AI,
+def build_explain_message(report: dict, llm_analysis: str, tokens_used: int) -> str:
+    # Blended gpt-5.4-nano price ≈ $0.62 / 1M tokens (60% in @ $0.20, 40% out @ $1.25)
+    cost = tokens_used * 0.62 / 1_000_000
+    return (
+        f"<b>{Colors.AI} AI Analysis — {escape(report['name'])}</b>\n\n"
+        f"{escape(llm_analysis)}\n\n"
+        f"<b>📊 Diagnostic data</b>\n"
+        f"Errors: <b>{report['error_count']}</b> · "
+        f"Restarts: <b>{report['restart_count']}</b> · "
+        f"Exit: <b>{report['exit_code']}</b>\n\n"
+        f"<i>GPT-5.4-nano • {tokens_used} tokens • ~${cost:.5f}</i>"
     )
-    embed.add_field(
-        name="📊 Diagnostic data",
-        value=f"Errors: **{report['error_count']}** • Restarts: **{report['restart_count']}** • Exit: **{report['exit_code']}**",
-        inline=False,
-    )
-    embed.set_footer(text=f"GPT-5.4-nano • {tokens_used} tokens • ~${tokens_used * 0.00005 / 1000:.4f}")
-    return embed
 ```
+
+### 11.8 `/history` — browsable diagnostic event timeline
+
+Reads from the `diagnostic_events` collection (§9.3 / §20). Each row shows severity emoji, short time, and one-line summary. Tapping a row expands the message in place to include the 20-line context window stored with the event.
+
+**Rendered example:**
+
+```
+📜 History — trading-dashboard
+Last 24 hours · 7 events
+
+🔴 12:35  Mongo timeout spike (42 in 5 min)
+🟡 11:20  Memory spike (480/512 MB)
+🔴 10:03  Container restart loop (3 restarts)
+🟡 09:15  Slow response time (>2 s)
+🔵 08:00  Deploy success (a3f21c9)
+🟡 06:44  Cold start (first request after idle)
+🔵 00:00  Daily health summary
+
+Tap an event → expand to 20 lines of context
+
+[🔴 Errors only] [🟡 All incidents]
+[⏱ 24h] [⏱ 7d] [⏱ 30d]
+```
+
+**Code:**
+
+```python
+# telegram_bot/messages.py
+from html import escape
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram_bot.colors import Colors
+from utils.mongo import db
+
+SEV_ICON = {"error": Colors.ERROR, "warn": Colors.WARNING, "info": Colors.INFO}
+
+async def build_history_message(
+    name: str, severity_filter: str = "all", window: str = "24h",
+) -> tuple[str, InlineKeyboardMarkup]:
+    query = history_query(name, severity_filter, window)
+    events = await db.diagnostic_events.find(query) \
+        .sort("triggered_at", -1).to_list(length=50)
+
+    header = (
+        f"<b>📜 History — {escape(name)}</b>\n"
+        f"<i>Last {window} · {len(events)} events</i>"
+    )
+    body = "\n".join(
+        f"{SEV_ICON.get(e['severity'], Colors.MUTED)} "
+        f"<code>{e['triggered_at'].strftime('%H:%M')}</code>  "
+        f"{escape(e['message'][:80])}"
+        for e in events
+    ) or "<i>No events in this window.</i>"
+
+    text = f"{header}\n\n{body}\n\n<i>Tap an event for context.</i>"
+    kbd = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔴 Errors only",  callback_data=f"hist:{name}:f:error"),
+         InlineKeyboardButton("🟡 All incidents", callback_data=f"hist:{name}:f:all")],
+        [InlineKeyboardButton("⏱ 24h", callback_data=f"hist:{name}:w:24h"),
+         InlineKeyboardButton("⏱ 7d",  callback_data=f"hist:{name}:w:7d"),
+         InlineKeyboardButton("⏱ 30d", callback_data=f"hist:{name}:w:30d")],
+        # Per-event tap buttons appended below this row in the handler
+    ])
+    return text, kbd
+```
+
+Expansion flow: tapping an event triggers `hist:<name>:open:<event_id>` → handler fetches `context_logs` from the event document and edits the message to include the 20 surrounding lines using the §11.3 readable format.
+
+### 11.9 Typed-keyword confirmation prompt (destructive ops)
+
+After the approval button is tapped on a destructive operation (§14.1), the bot posts a typed-keyword prompt. The user must reply with the exact phrase within 60 s (OD-L6) or the operation aborts.
+
+**Rendered example:**
+
+```
+🔴 Stop request — trading-dashboard
+
+This will stop the container on physical-main.
+Active connections: 3 · Uptime: 2h 14m
+
+To confirm, type exactly:
+STOP trading-dashboard
+
+(case-sensitive · 60s to respond)
+
+[❌ Cancel]
+```
+
+**Code:**
+
+```python
+# agents/nodes/request_typed_confirmation.py
+import asyncio
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram_bot.colors import Colors
+
+CONFIRM_TIMEOUT_SECONDS = 60   # OD-L6
+
+async def request_typed_confirmation(state: AgentState, bot, chat_id: int) -> AgentState:
+    action = state["tool_name"].upper()                  # "STOP", "ROLLBACK", …
+    target = state["intent_args"]["name"]
+    expected = f"{action} {target}"                      # OD-L5 full-form
+
+    prompt = (
+        f"<b>{Colors.ERROR} {action.title()} request — {target}</b>\n\n"
+        f"This will {action.lower()} the container on "
+        f"<code>{state['target_server']}</code>.\n"
+        f"{_impact_line(state)}\n\n"
+        f"<b>To confirm, type exactly:</b>\n"
+        f"<code>{expected}</code>\n\n"
+        f"<i>(case-sensitive · 60s to respond)</i>"
+    )
+    kbd = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="confirm:cancel")]])
+    msg = await bot.send_message(chat_id, prompt, parse_mode="HTML", reply_markup=kbd)
+
+    state["typed_confirm_expected"] = expected
+    state["typed_confirm_deadline"]  = datetime.utcnow() + timedelta(seconds=CONFIRM_TIMEOUT_SECONDS)
+
+    try:
+        received = await asyncio.wait_for(
+            _await_user_reply(chat_id, state),
+            timeout=CONFIRM_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        state["approved"] = False
+        state["error"]    = "typed_confirm_timeout"
+        return state
+
+    state["typed_confirm_received"] = received
+    state["approved"] = (received == expected)
+    if not state["approved"]:
+        state["error"] = "typed_confirm_mismatch"
+    return state
+```
+
+Timeouts and mismatches both write to the audit log (§14.6) with `result: "aborted_typed_confirm_<reason>"`.
 
 ---
 
-## 12. Token Budget (Profile B — slash-first)
+## 12. Token Budget — Conversational Primary
 
 ### 12.1 Where tokens are actually used
 
 | Stage | When | In | Out | Total |
 |---|---|---|---|---|
-| Free-text intent parser | Only if user types in chat (not slash) | ~200 | ~30 | ~230 |
+| Free-text intent parser | Every conversational turn (default path) | ~200 | ~30 | ~230 |
 | Pre-deploy config check | Once per `/deploy`, optional flag | ~400 | ~150 | ~550 |
 | `/explain` | Only when user runs it, opt-in | ~150 | ~100 | ~250 |
 
-**Everything else uses 0 tokens:** slash commands, autocomplete, status, logs, inspect, report, images, rollback, response formatting, errors, approvals.
+**Zero-token stages:** inline-mode entity search, keyboard callbacks, fuzzy "did you mean?" resolution, `/status`, `/logs`, `/inspect`, `/report`, `/images`, `/rollback`, response formatting, error handling, approvals.
 
-### 12.2 Realistic daily usage (Profile B)
+### 12.2 Realistic daily usage (conversational primary)
 
 | Activity | Count/day | Tokens each | Subtotal |
 |---|---|---|---|
-| Slash commands (autocompleted) | 30 | 0 | 0 |
-| Free-text chat (rare) | 2 | 230 | 460 |
+| Conversational messages (intent parse) | 20 | 230 | 4,600 |
 | `/deploy` with pre-check | 5 | 550 | 2,750 |
 | `/explain` | 2 | 250 | 500 |
-| **Daily total** | | | **~3,700** |
-| **Monthly** | | | **~110K** |
-| **Cost** (GPT-5.4-nano) | | | **~$0.02/month** |
+| **Daily total** | | | **~7,850** |
+| **Monthly** | | | **~235K** |
+| **Cost** (gpt-5.4-nano @ $0.20 in / $1.25 out per 1M) | | | **~$0.10–$0.20/month** |
+
+Ranges: heavy-input usage skews toward $0.10; heavy-output toward $0.20. Prompt caching (§16.1) shaves input further once system prompts stabilize.
 
 ### 12.3 Bounded input (prevent runaway cost)
 
@@ -931,19 +1324,23 @@ Every AI feature is flag-controlled. Set all three to `False` and the agent runs
 ```python
 # config/settings.py
 class Settings(BaseSettings):
-    ENABLE_FREE_TEXT_CHAT: bool = True           # disable → slash-only mode
+    ENABLE_FREE_TEXT_CHAT: bool = True           # disable → command-only mode (no conversational UX)
     ENABLE_PREDEPLOY_ANALYSIS: bool = True       # disable → skip LLM before deploys
     ENABLE_EXPLAIN_COMMAND: bool = True          # disable → remove /explain command
+    ENABLE_LOG_ALERTS: bool = True               # disable → scraper still runs, but no Telegram alerts
 ```
+
+**Note on `ENABLE_FREE_TEXT_CHAT`** — because Telegram is conversational-primary in v2, turning this off reduces the bot to command-only operation. All commands still work (they are 0-token), but the conversational intent-parse path is disabled; users must use explicit `/commands`.
 
 ```
 CORE FEATURES (always-on, 0 tokens)
 ├── GitHub listing via API + cache
-├── Slash command autocomplete (rapidfuzz)
+├── Inline-mode entity search (rapidfuzz)
+├── Inline keyboard selection + "did you mean?" fallback
 ├── Deploy pipeline (build, push, pull, run)
 ├── Multi-server management
 ├── Layer 1 diagnostics (inspect + logs + rules)
-├── Templated Discord UI (Embeds, tables, paginators)
+├── Templated Telegram HTML messages + keyboards + paginators
 ├── Rollback + image management
 ├── Audit log + checkpointing
 └── Everything else
@@ -964,11 +1361,11 @@ OPTIONAL AI FEATURES (flag-controlled)
 |---|---|---|
 | **auto** | GitHub queries, logs, report, inspect, status, health, images | Execute immediately |
 | **notify** | deploy, restart, redeploy | Execute, post notification card |
-| **approval** | stop, rollback, remove-images, cleanup, delete-deployment | HITL interrupt → Discord button → resume |
+| **approval** | stop, rollback, remove-images, cleanup, delete-deployment | HITL interrupt → Telegram button → typed-keyword confirm (60s timeout) → resume |
 
 ### 14.2 Allow / deny lists
 
-- **Allowlist**: Discord user IDs that may issue commands
+- **Allowlist**: Telegram user IDs (integers from `message.from_user.id`) that may issue commands
 - **Allowlist**: GitHub orgs / repos the agent may touch
 - **Denylist**: container names that may never be stopped/deleted via chat (`mongo`, `agent`, `traefik`)
 - **Denylist**: host paths that may not be mounted into deployed containers
@@ -1008,7 +1405,7 @@ def verify_env_security():
 
 ### 14.4 `deploy.config.yml` schema validation
 
-Every deploy starts with a strict Pydantic validation pass. Invalid configs fail fast with a friendly Discord message.
+Every deploy starts with a strict Pydantic validation pass. Invalid configs fail fast with a friendly Telegram message.
 
 ```python
 # config/deploy_config_schema.py
@@ -1037,7 +1434,7 @@ class DeployConfig(BaseModel):
     model_config = {"extra": "forbid"}   # unknown fields = error
 ```
 
-**Error formatter posts friendly messages to Discord:**
+**Error formatter posts friendly messages to Telegram:**
 
 ```python
 async def validate_deploy_config(yaml_text: str):
@@ -1045,7 +1442,7 @@ async def validate_deploy_config(yaml_text: str):
         data = yaml.safe_load(yaml_text)
         return DeployConfig.model_validate(data), None
     except yaml.YAMLError as e:
-        return None, f"⚠️ Invalid YAML syntax:\n```\n{e}\n```"
+        return None, f"⚠️ Invalid YAML syntax:\n<pre>{escape(str(e))}</pre>"
     except ValidationError as e:
         errors = []
         for err in e.errors():
@@ -1055,18 +1452,18 @@ async def validate_deploy_config(yaml_text: str):
             if err["type"] == "extra_forbidden":
                 closest = process.extractOne(field, KNOWN_FIELDS)
                 if closest and closest[1] > 60:
-                    msg += f" (did you mean `{closest[0]}`?)"
-            errors.append(f"  • `{field}` — {msg}")
-        return None, "⚠️ `deploy.config.yml` has errors:\n" + "\n".join(errors) + \
+                    msg += f" (did you mean <code>{closest[0]}</code>?)"
+            errors.append(f"  • <code>{field}</code> — {msg}")
+        return None, "⚠️ <code>deploy.config.yml</code> has errors:\n" + "\n".join(errors) + \
                      "\n\nFix these and retry the deploy."
 ```
 
-**Example Discord output:**
+**Example Telegram output:**
 
 ```
 ⚠️ deploy.config.yml has errors:
   • port — Input should be a valid integer, unable to parse 'tree-thousand'
-  • target_sever — Extra inputs are not permitted (did you mean `target_server`?)
+  • target_sever — Extra inputs are not permitted (did you mean target_server?)
   • docker_hub.image — Field required
 
 Fix these and retry the deploy.
@@ -1089,7 +1486,7 @@ Every action writes to Mongo `audit_log`:
 ```json
 {
   "timestamp": "2026-04-11T14:22:00Z",
-  "actor": "discord:kalpesh#0001",
+  "actor": "telegram:kalpesh281",
   "action": "deploy",
   "tool_tier": "notify",
   "target": "trading-dashboard",
@@ -1100,6 +1497,8 @@ Every action writes to Mongo `audit_log`:
 }
 ```
 
+Actor format: `telegram:<username>` if the Telegram user has a username, else `telegram:<user_id>`.
+
 ---
 
 ## 15. Observability
@@ -1108,7 +1507,7 @@ Every action writes to Mongo `audit_log`:
 - **Prometheus `/metrics`**: deploys_total, tool_calls_total, llm_tokens_total, container_restarts_total, image_cleanup_total
 - **FastAPI `/health`** liveness endpoint
 - **Per-deployment healthchecks** after every `docker run`
-- **Scheduled health pings** every 5 min, alerts to Discord on red
+- **Scheduled health pings** every 5 min, alerts to Telegram on red
 - **structlog** for JSON-formatted application logs to stdout
 
 ---
@@ -1125,7 +1524,7 @@ Every action writes to Mongo `audit_log`:
 | **Skip push for local target** | Saves 30-90s per internal deploy |
 | **Alpine / distroless base images** | 5x smaller images = 5x faster push/pull |
 | **Layer ordering** (deps before code) | Huge cache hit rate |
-| **Streaming Discord updates** | Feels 2x faster |
+| **Streaming Telegram message edits** | Feels 2x faster |
 | **Persistent repo checkout** (git fetch + reset) | Saves clone time |
 | **Prompt caching** (stable system prompts ≥1024 tokens) | 50% discount on input tokens |
 
@@ -1161,7 +1560,12 @@ Every action writes to Mongo `audit_log`:
 | `/images <name>` | ~100 ms |
 | `/disk <server>` | ~300 ms |
 
-**Autocomplete:** <50 ms per keystroke (in-memory rapidfuzz).
+**Entity selection:**
+
+| Surface | Duration |
+|---|---|
+| Inline mode query (`@bot tra`) | ~80–120 ms (in-memory rapidfuzz + answer_inline_query) |
+| Keyboard callback roundtrip | ~200–400 ms (network + `edit_message_text`) |
 
 **Background processes:**
 
@@ -1221,13 +1625,13 @@ devops-agent/
 │       ├── metrics.py
 │       └── webhooks.py
 │
-├── discord_bot/                 # Discord bot (top-level)
+├── telegram_bot/                # Telegram bot (top-level)
 │   ├── __init__.py
-│   ├── bot.py
-│   ├── commands.py              # slash + autocomplete handlers
-│   ├── views.py                 # Button views + paginators
-│   ├── embeds.py                # Embed builders
-│   ├── colors.py                # Color palette
+│   ├── bot.py                   # Application + dispatcher
+│   ├── handlers.py              # CommandHandler + MessageHandler + CallbackQueryHandler + InlineQueryHandler
+│   ├── keyboards.py             # InlineKeyboardMarkup builders
+│   ├── messages.py              # HTML message builders
+│   ├── colors.py                # Emoji palette
 │   └── formatters.py            # tabulate tables, uptime/size formatters
 │
 ├── config/
@@ -1287,7 +1691,8 @@ devops-agent/
 │
 ├── scripts/
 │   ├── setup_dev.sh
-│   └── deploy_agent.sh
+│   ├── deploy_agent.sh
+│   └── telegram_commands.txt    # pasted into BotFather /setcommands
 │
 ├── secrets/                     # gitignored
 │   └── servers.yml
@@ -1324,7 +1729,7 @@ dependencies = [
     "openai>=1.50.0",
     "PyGithub>=2.4.0",
     "docker>=7.1.0",
-    "discord.py>=2.4.0",
+    "python-telegram-bot>=21.0.0",
     "motor>=3.6.0",
     "pymongo>=4.10.0",
     "pydantic>=2.9.0",
@@ -1371,7 +1776,7 @@ lint:
 	. .venv/bin/activate && ruff check . && ruff format --check .
 
 type:
-	. .venv/bin/activate && mypy agents/ api/ tools/ utils/ discord_bot/ config/
+	. .venv/bin/activate && mypy agents/ api/ tools/ utils/ telegram_bot/ config/
 
 clean:
 	rm -rf .venv __pycache__ .pytest_cache .mypy_cache
@@ -1417,12 +1822,44 @@ clean:
   "env": { "API_KEY": "***encrypted***" },
   "status": "running",
   "deployed_at": "2026-04-11T14:22:00Z",
-  "deployed_by": "discord:kalpesh#0001"
+  "deployed_by": "telegram:kalpesh281"
 }
 ```
 
 ### `audit_log`
 See §14.6
+
+### `container_logs` (persistent log ingestion — §9.3)
+```json
+{
+  "_id": ObjectId,
+  "deployment": "trading-dashboard",
+  "target_server": "physical-main",
+  "timestamp": "2026-04-24T12:34:56.123Z",
+  "stream": "stdout",
+  "line": "2026-04-24T12:34:56.123Z ERROR Mongo connection timeout",
+  "level": "ERROR",
+  "cluster_id": "mongo_timeout_<hash>",
+  "created_at": ISODate
+}
+```
+Indexes: compound `(deployment, timestamp DESC)` for range reads; TTL index on `created_at` — 604800 s (7 days, OD-L2).
+
+### `diagnostic_events` (rule-engine matches — §9.3, §11.8)
+```json
+{
+  "_id": ObjectId,
+  "deployment": "trading-dashboard",
+  "triggered_at": "2026-04-24T12:35:00Z",
+  "rule": "mongo_timeout_spike",
+  "severity": "error",
+  "message": "42 mongo timeouts in last 5 min",
+  "context_logs": ["...", "..."],
+  "alerted": true,
+  "created_at": ISODate
+}
+```
+Indexes: compound `(deployment, triggered_at DESC)` for `/history`; TTL index on `created_at` — 2592000 s (30 days, OD-L3).
 
 ### `checkpoints`
 Managed by `langgraph-checkpoint-mongodb`. TTL index expires entries after 7 days.
@@ -1448,9 +1885,9 @@ Managed by `langgraph-checkpoint-mongodb`. TTL index expires entries after 7 day
 
 | Week | Focus | Deliverable |
 |---|---|---|
-| **1** | Foundation + GitHub queries | Bot responds to all GitHub queries with fuzzy autocomplete. Zero LLM calls yet. |
-| **2** | Multi-target deployment | End-to-end deploy via slash command (clone → build → push → pull → run). |
-| **3** | Rollback, diagnostics, UI, cleanup | Full deploy lifecycle with diagnostics, rollback, image management, and rich Discord UI — all with 0 tokens. |
+| **1** | Foundation + GitHub queries | Bot responds to all GitHub queries with inline-mode and keyboard selection. Zero LLM calls yet. |
+| **2** | Multi-target deployment | End-to-end deploy via command (clone → build → push → pull → run). |
+| **3** | Rollback, diagnostics, UI, cleanup | Full deploy lifecycle with diagnostics, rollback, image management, and rich Telegram UI — all with 0 tokens. |
 | **4** | AI layer + hardening + polish | Production-grade agent running on the physical server. Portfolio ready. |
 
 ---
@@ -1468,8 +1905,8 @@ make install
 
 # 3. Copy and fill .env
 cp .env.example .env
-# edit: GITHUB_TOKEN, OPENAI_API_KEY, DISCORD_BOT_TOKEN, MONGO_URL,
-#       ALLOWED_DISCORD_USERS, GITHUB_ORG, DOCKER_HUB_USER,
+# edit: GITHUB_TOKEN, OPENAI_API_KEY, TELEGRAM_BOT_TOKEN, MONGO_URL,
+#       ALLOWED_TELEGRAM_USERS, GITHUB_ORG, DOCKER_HUB_USER,
 #       ENABLE_FREE_TEXT_CHAT, ENABLE_PREDEPLOY_ANALYSIS, ENABLE_EXPLAIN_COMMAND
 chmod 600 .env
 
@@ -1494,7 +1931,16 @@ docker login
 
 # 8. Start MongoDB locally (or use Atlas) — see MongoDB-Setup.md
 
-# 9. Run the agent
+# 9. Telegram bot setup (one-time, via @BotFather)
+#    DM @BotFather on Telegram:
+#      /newbot       → pick a name + username, copy the token into TELEGRAM_BOT_TOKEN
+#      /setcommands  → paste contents of scripts/telegram_commands.txt
+#      /setprivacy   → enable (DM-only mode)
+#      /setinline    → enable inline mode, placeholder: "search repos, branches, deployments"
+#    Then /start your own bot and note your numeric user ID (from @userinfobot)
+#    Add your user ID to ALLOWED_TELEGRAM_USERS in .env
+
+# 10. Run the agent
 make dev
 ```
 
@@ -1531,11 +1977,12 @@ docker compose logs -f agent
 
 | Threat | Mitigation |
 |---|---|
-| Random Discord user runs commands | Allowlist of Discord user IDs |
+| Random Telegram user runs commands | Allowlist of Telegram user IDs |
 | LLM hallucinates a destructive tool call | Tier system + denylist + HITL approval |
 | Compromised agent host → all client keys leak | PEMs in restricted folder, host hardening required |
 | Mongo dump leaks env vars | Env vars in plain .env (noted trade-off — simple operation) |
-| Discord channel compromised | No secrets ever sent through Discord |
+| Telegram chat compromised | No secrets ever sent through Telegram |
+| Telegram bot token leak | Immediate `/revoke` via @BotFather + rotate `TELEGRAM_BOT_TOKEN` in `.env` |
 | Agent crash mid-deploy → orphaned containers | Mongo checkpointer resumes mid-graph |
 | Disk fills up from old images | Auto-cleanup honoring `image_history` |
 | Container escape from deployed app | Hardening flags: read-only, cap-drop, no-new-privileges, resource limits |
@@ -1547,24 +1994,25 @@ docker compose logs -f agent
 ## 24. Verification (post-build checklist)
 
 1. **Guardrails**: `/stop mongo` → refused (denylist). Non-allowlisted user runs `/deploy` → refused.
-2. **Approval**: `/stop test-dep` → button card → click approve → container actually stops.
-3. **Autocomplete**: `/deploy repo:tra` → dropdown shows trading-dashboard at top. Typo `trding` still matches.
-4. **Audit log**: any command → Mongo `audit_log` row with actor, tier, result, duration.
-5. **Checkpointing**: start a deploy → kill agent mid-build → restart → resumes correctly.
-6. **Metrics**: `curl http://localhost:8000/metrics` → Prometheus counters visible.
-7. **Container hardening**: `docker inspect <svc>` → `ReadonlyRootfs: true`, `CapDrop: [ALL]`.
-8. **Multi-target**: deploy with `target_server: client-acme-prod` → container on EC2, not physical.
-9. **Identifier resolution**: `/logs trading-dashboard`, `/logs kalpesh281/trading-dashboard`, `/logs internal` → all resolve to same deployment.
-10. **Auto-cleanup**: deploy 6 times → only last 5 images remain (history length).
-11. **Rollback**: `/rollback name` → restores previous image in <10s, healthcheck passes.
-12. **`/images`**: shows last 5 versions; "Remove old" button removes all but current + previous.
-13. **Layer 1 diagnostics**: `/report name` → populated Embed in <1s, 0 tokens.
-14. **Layer 2 explain**: `/explain name` → AI hypothesis + token count in footer.
-15. **YAML validation**: push a repo with typo'd field → Discord error with "did you mean" suggestion.
-16. **`.env` check**: `chmod 644 .env` → agent boot logs a warning.
-17. **Dev → prod**: flip `physical-main.connection` ssh→local → no code changes → works.
-18. **AI toggles**: set all three `ENABLE_*` flags to false → agent still deploys and diagnoses normally.
-19. **CI**: push a PR with broken type → mypy/ruff/test failure in Actions.
+2. **Approval**: `/stop test-dep` → keyboard card → tap approve → container actually stops.
+3. **Inline mode**: `@yourbot tra` → `trading-dashboard` appears in the top result within 200 ms.
+4. **Fuzzy resolve**: `/deploy trding-dashbord main` → bot replies "did you mean `trading-dashboard`?" with confirm button; tapping confirm starts the deploy.
+5. **Audit log**: any command → Mongo `audit_log` row with actor, tier, result, duration.
+6. **Checkpointing**: start a deploy → kill agent mid-build → restart → resumes correctly.
+7. **Metrics**: `curl http://localhost:8000/metrics` → Prometheus counters visible.
+8. **Container hardening**: `docker inspect <svc>` → `ReadonlyRootfs: true`, `CapDrop: [ALL]`.
+9. **Multi-target**: deploy with `target_server: client-acme-prod` → container on EC2, not physical.
+10. **Identifier resolution**: `/logs trading-dashboard`, `/logs kalpesh281/trading-dashboard`, `/logs internal` → all resolve to same deployment.
+11. **Auto-cleanup**: deploy 6 times → only last 5 images remain (history length).
+12. **Rollback**: `/rollback name` → restores previous image in <10s, healthcheck passes.
+13. **`/images`**: shows last 5 versions; "Remove old" button removes all but current + previous.
+14. **Layer 1 diagnostics**: `/report name` → populated HTML message in <1s, 0 tokens.
+15. **Layer 2 explain**: `/explain name` → AI hypothesis + token count in footer.
+16. **YAML validation**: push a repo with typo'd field → Telegram error with "did you mean" suggestion.
+17. **`.env` check**: `chmod 644 .env` → agent boot logs a warning.
+18. **Dev → prod**: flip `physical-main.connection` ssh→local → no code changes → works.
+19. **AI toggles**: set all three `ENABLE_*` flags to false → agent still deploys and diagnoses normally.
+20. **CI**: push a PR with broken type → mypy/ruff/test failure in Actions.
 
 ---
 
@@ -1588,26 +2036,28 @@ docker compose logs -f agent
 | **Docker registry** | Docker Hub (no local mirror) | <50 deploys/day at startup scale, well under rate limits |
 | **GitHub cache refresh** | Polling every 5 min | <200 API calls/hour; webhook-driven refresh is v3 optimization |
 | **Single-host deploy** | Agent runs on one server | Single-user tool; HA is v3 territory |
-| **No web dashboard** | Discord-only | Discord gives you Embeds, buttons, autocomplete for free |
+| **No web dashboard** | Telegram-only | Telegram gives you HTML messages, inline keyboards, inline mode for free |
+| **No per-argument autocomplete** | Telegram platform has no live per-argument completion | Mitigated by inline mode + keyboard fallback + fuzzy "did you mean?" · users adapt within a day · single-user personal tool, setup simplicity beats Discord's richer picker |
 
 ---
 
 ## 26. Resume Bullet
 
-> Built a production-grade conversational DevOps AI agent (LangGraph + FastAPI + Discord) that manages GitHub repositories and Docker deployments across multiple servers (physical + AWS EC2). Hybrid AI design: core features (deploy, rollback, diagnostics, autocomplete) use **zero LLM calls** and work offline, while three opt-in AI features (free-text chat, pre-deploy Dockerfile review, `/explain` root-cause hypothesis) can be toggled independently via config flags. Includes tiered authorization with Discord button-based human-in-the-loop approval, Mongo-backed LangGraph checkpointing for resumable graph execution, rapidfuzz-powered slash command autocomplete over a cached repo/branch list, a two-layer diagnostics system (regex + rule engine for Layer 1, LLM hypothesis on structured summaries for Layer 2 at <300 tokens/call), and rich Discord UI with color-coded Embeds, paginated logs, and live-streaming deploy messages. Replaces manual SSH workflows with single-command deployments, rollbacks, and diagnostics — reducing deploy time from ~10 minutes to ~25 seconds. Full monthly LLM cost: **~$0.02**.
+> Built a production-grade conversational DevOps AI agent (LangGraph + FastAPI + Telegram) that manages GitHub repositories and Docker deployments across multiple servers (physical + AWS EC2). Hybrid AI design: core features (deploy, rollback, diagnostics, entity selection) use **zero LLM calls** and work offline, while three opt-in AI features (free-text chat, pre-deploy Dockerfile review, `/explain` root-cause hypothesis) can be toggled independently via config flags. Includes tiered authorization with Telegram inline-keyboard-based human-in-the-loop approval, Mongo-backed LangGraph checkpointing for resumable graph execution, rapidfuzz-powered inline-mode entity search and keyboard fallback over a cached repo/branch list, a two-layer diagnostics system (regex + rule engine for Layer 1, LLM hypothesis on structured summaries for Layer 2 at <300 tokens/call), and a rich Telegram UI with emoji-coded HTML messages, inline-keyboard-paginated logs, and live-streaming deploy messages via `edit_message_text`. Replaces manual SSH workflows with single-command deployments, rollbacks, and diagnostics — reducing deploy time from ~10 minutes to ~25 seconds. Full monthly LLM cost: **~$0.10–$0.20**.
 
 ---
 
 ## 27. v3 Roadmap
 
-- Web dashboard (React) alongside Discord
+- Web dashboard (React) alongside Telegram
+- Telegram Mini App for richer in-chat UI (charts, tables)
 - PR-triggered preview deployments via GitHub webhooks
 - AWS SSM Session Manager as an alternative target type (keyless, audited)
 - Traefik / Caddy reverse proxy with auto-SSL
 - HashiCorp Vault integration for secrets
 - Local Docker Hub pull-through cache (if deploy frequency grows)
 - Multi-LLM provider support (Anthropic + OpenAI)
-- Approval delegation (require 2 Discord users for the most destructive ops)
+- Approval delegation (require 2 Telegram users for the most destructive ops)
 - Webhook-driven GitHub cache invalidation (vs polling)
 - Disk-based log archiving with search
 - Cost tracking per deployment
