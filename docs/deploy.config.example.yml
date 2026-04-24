@@ -1,0 +1,27 @@
+# ============================================================
+# deploy.config.yml — canonical example for a deployable repo
+# ============================================================
+# Drop this file at the repo root and the DevOps agent can
+# deploy it via /deploy <repo>. The schema is strict (§14.4) —
+# unknown fields fail validation with a "did you mean" hint.
+# ============================================================
+
+# Required ─────────────────────────────────────
+name: trading-dashboard           # container + deployment name
+stack: node                       # node | python | static | custom
+port: 3000                        # container port
+target_server: physical-main      # must match an id in secrets/servers.yml
+docker_hub:
+  image: kalpesh281/trading-dashboard
+
+# Optional (sensible defaults) ────────────────
+project: acme                     # picks /devops_agent/pem/acme.pem
+build: docker                     # only "docker" for now
+env_required:                     # names (not values) of required env vars
+  - API_KEY
+  - MONGO_URI
+healthcheck: /health              # HTTP path polled after start
+resources:
+  memory: 512m                    # 256m | 512m | 1g | 2g | …
+  cpus: "1.0"                     # 0.5 | 1.0 | 2.0 | …
+  pids: 256                       # max processes inside container

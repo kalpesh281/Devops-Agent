@@ -32,6 +32,9 @@ _COMMAND_MENU: list[BotCommand] = [
     BotCommand("prs", "Open pull requests"),
     BotCommand("files", "Key files in a repo"),
     BotCommand("refresh", "Force cache refresh"),
+    BotCommand("servers", "List deployment targets"),
+    BotCommand("status", "Running containers per server"),
+    BotCommand("disk", "Docker disk usage for a server"),
     BotCommand("users", "Who's on the team"),
 ]
 
@@ -56,6 +59,9 @@ def _build_application() -> AppType:
     app.add_handler(CommandHandler("prs", handlers.cmd_prs))
     app.add_handler(CommandHandler("files", handlers.cmd_files))
     app.add_handler(CommandHandler("refresh", handlers.cmd_refresh))
+    app.add_handler(CommandHandler("servers", handlers.cmd_servers))
+    app.add_handler(CommandHandler("status", handlers.cmd_status))
+    app.add_handler(CommandHandler("disk", handlers.cmd_disk))
     app.add_handler(CommandHandler("users", handlers.cmd_users))
 
     # Inline-mode fuzzy search

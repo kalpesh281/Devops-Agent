@@ -108,6 +108,9 @@ def build_help_message(role: str) -> str:
         ("/prs &lt;repo&gt;", "open pull requests"),
         ("/files &lt;repo&gt; &lt;branch&gt;", "check which key files exist"),
         ("/refresh", "refresh my cache right now"),
+        ("/servers", "list deployment targets"),
+        ("/status [server]", "running containers per server"),
+        ("/disk &lt;server&gt;", "docker disk usage for a server"),
         ("/whoami", "show your enrollment info"),
         ("/users", "who's on the team"),
     ]
@@ -238,6 +241,110 @@ def build_refresh_result(data: dict[str, Any]) -> str:
         f"Kind:       <code>{escape(data.get('owner_kind') or '-')}</code>\n"
         f"Repo count: <b>{data.get('repo_count', 0)}</b>\n"
         f"Took:       <code>{data.get('elapsed_ms', 0)} ms</code>"
+    )
+
+
+# ────────── servers / status / disk (Phase 4) ──────────
+
+
+def build_servers_message(data: dict[str, Any]) -> str:
+    servers = data.get("servers", [])
+    if not servers:
+        return (
+            f"{Colors.WARNING} <i>No servers registered. Check "
+            f"<code>secrets/servers.yml</code>.</i>"
+        )
+    rows: list[list[str]] = []
+    for s in servers:
+        labels = ",".join(s.get("labels") or []) or "—"
+        rows.append(
+            [
+                s.get("id", "?"),
+                s.get("type", "?"),
+                s.get("connection", "?"),
+                s.get("host") or "(local)",
+                labels,
+            ]
+        )
+    table = tabulate(
+        rows,
+        headers=["ID", "Type", "Conn", "Host", "Labels"],
+        tablefmt="simple",
+    )
+    return f"<b>🖥 Servers ({len(servers)})</b>\n<pre>{escape(table)}</pre>"
+
+
+def build_status_message(data: dict[str, Any]) -> str:
+    results = data.get("servers", [])
+    if not results:
+        return f"{Colors.WARNING} <i>No servers to query.</i>"
+
+    lines: list[str] = []
+    total = data.get("total_running", 0)
+    scope = f" — <code>{escape(data['server_id'])}</code>" if data.get("server_id") else ""
+    lines.append(f"<b>📊 Status{scope}</b> — {total} running total")
+
+    for srv in results:
+        sid = srv.get("server_id", "?")
+        conn = srv.get("connection", "?")
+        if not srv.get("ok"):
+            err_short = (srv.get("error") or "unknown error")[:100]
+            lines.append(
+                f"\n<b>{Colors.ERROR} {escape(sid)}</b> "
+                f"<i>({escape(conn)})</i> — <code>{escape(err_short)}</code>"
+            )
+            continue
+
+        containers = srv.get("containers", [])
+        lines.append(
+            f"\n<b>{Colors.SUCCESS} {escape(sid)}</b> "
+            f"<i>({escape(conn)}, {len(containers)} running)</i>"
+        )
+        if not containers:
+            lines.append("  <i>(no containers running)</i>")
+            continue
+        rows = [[c.get("name", ""), c.get("status", ""), c.get("image", "")] for c in containers]
+        table = tabulate(rows, headers=["Name", "Status", "Image"], tablefmt="simple")
+        lines.append(f"<pre>{escape(table)}</pre>")
+    return "\n".join(lines)
+
+
+def _fmt_bytes(n: int) -> str:
+    """Human-friendly byte count (binary units — matches docker's own output)."""
+    x = float(n)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if x < 1024:
+            return f"{x:.1f} {unit}"
+        x /= 1024
+    return f"{x:.1f} PiB"
+
+
+def build_disk_message(data: dict[str, Any]) -> str:
+    sid = data.get("server_id", "?")
+    rows: list[list[str]] = [
+        [
+            "Images",
+            str(data.get("images_total", 0)),
+            _fmt_bytes(data.get("images_size_bytes", 0)),
+        ],
+        [
+            "Containers",
+            str(data.get("containers_total", 0)),
+            _fmt_bytes(data.get("containers_size_bytes", 0)),
+        ],
+        [
+            "Volumes",
+            str(data.get("volumes_total", 0)),
+            _fmt_bytes(data.get("volumes_size_bytes", 0)),
+        ],
+        ["Build cache", "—", _fmt_bytes(data.get("builder_cache_bytes", 0))],
+        ["Total layers", "—", _fmt_bytes(data.get("layers_size_bytes", 0))],
+    ]
+    table = tabulate(rows, headers=["Kind", "Count", "Size"], tablefmt="simple")
+    return (
+        f"<b>💾 Disk — <code>{escape(sid)}</code></b> "
+        f"<i>({escape(data.get('connection', '?'))})</i>\n"
+        f"<pre>{escape(table)}</pre>"
     )
 
 

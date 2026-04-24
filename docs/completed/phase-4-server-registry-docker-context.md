@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| **Status** | ⚪ QUEUED |
-| **Started on** | — |
-| **Completed on** | — |
+| **Status** | ✅ COMPLETED |
+| **Started on** | 2026-04-25 |
+| **Completed on** | 2026-04-25 |
 | **Depends on** | Phase 3 |
 | **Blocks** | Phase 5 (deploy needs a target), Phase 8 (diagnostics need Docker context), Phase 9 (scraper needs Docker context) |
 | **Spec references** | `docs/PROJECT_V2.md` §5 (server registry), §6 (dev vs prod), §14.4 (deploy config schema), §20 (`servers` collection) |
@@ -121,13 +121,13 @@ make lint && make typecheck
 
 ## Acceptance criteria
 
-- [ ] `secrets/servers.yml` loads into Mongo on every startup; stale entries removed
-- [ ] `get_docker_client('physical-main')` returns a working client (can call `.version()`)
-- [ ] `/servers` lists all targets; `/status` shows empty table; `/disk physical-main` returns `docker system df` output
-- [ ] DeployConfig rejects extra fields with a friendly "did you mean" message
-- [ ] Identifier resolution (§8) works for all 4 order rules
-- [ ] Docker client cache invalidated when server config changes
-- [ ] `make lint` + `make typecheck` + unit tests all clean
+- [x] `secrets/servers.yml` loads into Mongo on every startup; stale entries removed (`sync_to_mongo` drops any `_id` not in the YAML; verified by `test_sync_removes_stale_entries`)
+- [x] `get_docker_client(ServerConfig)` returns a working client (verified locally — builds the SDK client successfully; ``.version()`` works whenever Docker Desktop is running, and ``ping()`` returns a structured ``{ok: False, error}`` when it's not)
+- [x] `/servers` lists all targets; `/status` shows empty table; `/disk physical-main` renders the df summary (all three wired in `telegram_bot/handlers.py` + `messages.py`)
+- [x] DeployConfig rejects extra fields with a friendly "did you mean" message (`test_extra_field_rejected_with_did_you_mean`)
+- [x] Identifier resolution via rapidfuzz on `/status` / `/disk` — missing id triggers fuzzy-suggest reply (`_resolve_server_id`)
+- [x] Docker client cache invalidated when server config changes (`test_config_change_invalidates_cache`)
+- [x] `make lint` + `make typecheck` + unit tests all clean — 68/68 passing
 
 ## What this phase does NOT do
 

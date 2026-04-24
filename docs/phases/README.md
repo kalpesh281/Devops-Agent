@@ -23,7 +23,7 @@ docs/completed/<phase>.md       ← frozen record of what shipped
 | 1  | Config, logging, Mongo plumbing       | ✅ COMPLETED   | [`../completed/phase-1-config-logging-mongo.md`](../completed/phase-1-config-logging-mongo.md) |
 | 2  | GitHub layer (cache + tool registry)  | ✅ COMPLETED   | [`../completed/phase-2-github-layer.md`](../completed/phase-2-github-layer.md) |
 | 3  | Telegram bot shell + GitHub commands  | ✅ COMPLETED   | [`../completed/phase-3-telegram-bot-shell.md`](../completed/phase-3-telegram-bot-shell.md) |
-| 4  | Server registry + Docker context      | ⚪ QUEUED      | [`phase-4-server-registry-docker-context.md`](phase-4-server-registry-docker-context.md) |
+| 4  | Server registry + Docker context      | ✅ COMPLETED   | [`../completed/phase-4-server-registry-docker-context.md`](../completed/phase-4-server-registry-docker-context.md) |
 | 5  | Deploy pipeline (build → push → pull → run) | ⚪ QUEUED | [`phase-5-deploy-pipeline.md`](phase-5-deploy-pipeline.md) |
 | 6  | LangGraph agent (graph + nodes)       | ⚪ QUEUED      | [`phase-6-langgraph-agent.md`](phase-6-langgraph-agent.md) |
 | 7  | Rollback + destructive ops (HITL + typed-confirm) | ⚪ QUEUED | [`phase-7-rollback-destructive-ops.md`](phase-7-rollback-destructive-ops.md) |
@@ -45,6 +45,6 @@ Each phase doc follows a standard template (see `../completed/phase-0-environmen
 
 ## Next up
 
-**Phase 4** is the next queued phase. It adds the server registry (`secrets/servers.yml` → Mongo), `DeployConfig` Pydantic schema, and Docker context factory — everything needed before Phase 5 (deploy pipeline) can target a real Docker daemon.
+**Phase 5** is the next queued phase — the real deploy pipeline (git clone → docker build → tag/push → pull → run with hardening → healthcheck → audit log). Phase 4 just landed: `secrets/servers.yml` is now loaded into Mongo on startup, a per-server Docker-client factory is in place with invalidation on config change, and three new read-only commands (`/servers`, `/status`, `/disk`) are live in Telegram.
 
-No external prerequisites needed for Phase 4 itself; `docker login` + a test repo with `deploy.config.yml` become needed only when Phase 5 starts.
+External prerequisites that become relevant for Phase 5: `docker login` on the agent host, a test repo with a `deploy.config.yml` (see [`../deploy.config.example.yml`](../deploy.config.example.yml)), and Docker Desktop (or a remote daemon reachable via SSH) running.

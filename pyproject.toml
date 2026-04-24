@@ -27,6 +27,7 @@ dependencies = [
     # Integrations
     "PyGithub>=2.4.0",
     "docker>=7.1.0",
+    "paramiko>=3.5.0",
     "python-telegram-bot>=21.0.0",
 
     # Database
@@ -57,7 +58,9 @@ dev = [
     "ruff>=0.7.0",
     "mypy>=1.13.0",
     "types-PyYAML>=6.0.0",
+    "types-paramiko>=3.5.0",
     "types-tabulate>=0.9.0",
+    "mongomock-motor>=0.0.34",
 ]
 
 # ---------------------------------------------------------------------------

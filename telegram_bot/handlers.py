@@ -15,11 +15,12 @@ from telegram_bot.enrollment import (
     is_pending,
     start_enrollment,
 )
-from tools import github_tools
+from tools import github_tools, server_tools
 from utils.fuzzy_resolver import fuzzy_extract
 from utils.github_cache import cache as gh_cache
 from utils.logger import get_logger
 from utils.mongo import get_db
+from utils.server_registry import list_servers as list_servers_registry
 from utils.user_registry import (
     find_by_telegram_username,
     get_cached,
@@ -253,6 +254,100 @@ async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=messages.build_refresh_result(result),
+        parse_mode="HTML",
+    )
+
+
+# ───────────────────── Phase 4: servers + status + disk ─────────────────────
+
+
+async def _resolve_server_id(query: str) -> tuple[str | None, list[tuple[str, float]]]:
+    """Return (exact_id, suggestions). Exactly one is non-empty."""
+    known = [s.id for s in await list_servers_registry(get_db())]
+    if query in known:
+        return query, []
+    return None, fuzzy_extract(query, known, limit=5, score_cutoff=50)
+
+
+async def cmd_servers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if await _auth(update, context) is None or update.effective_chat is None:
+        return
+    result = await server_tools.list_servers_tool()
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=messages.build_servers_message(result),
+        parse_mode="HTML",
+    )
+
+
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if await _auth(update, context) is None or update.effective_chat is None:
+        return
+    args = context.args or []
+    chat_id = update.effective_chat.id
+
+    server_id: str | None = None
+    if args:
+        resolved, suggestions = await _resolve_server_id(args[0])
+        if resolved is None:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=messages.build_did_you_mean_message(args[0], suggestions),
+                parse_mode="HTML",
+            )
+            return
+        server_id = resolved
+
+    try:
+        result = await server_tools.status_tool(server_id=server_id)
+    except ValueError as e:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=messages.build_error_message(str(e)),
+            parse_mode="HTML",
+        )
+        return
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=messages.build_status_message(result),
+        parse_mode="HTML",
+    )
+
+
+async def cmd_disk(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if await _auth(update, context) is None or update.effective_chat is None:
+        return
+    args = context.args or []
+    chat_id = update.effective_chat.id
+    if not args:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Usage: <code>/disk &lt;server&gt;</code> — e.g. <code>/disk physical-main</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    resolved, suggestions = await _resolve_server_id(args[0])
+    if resolved is None:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=messages.build_did_you_mean_message(args[0], suggestions),
+            parse_mode="HTML",
+        )
+        return
+
+    try:
+        result = await server_tools.disk_usage_tool(server_id=resolved)
+    except ValueError as e:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=messages.build_error_message(str(e)),
+            parse_mode="HTML",
+        )
+        return
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=messages.build_disk_message(result),
         parse_mode="HTML",
     )
 

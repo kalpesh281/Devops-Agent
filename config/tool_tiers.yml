@@ -17,9 +17,9 @@ tiers:
   refresh_cache:  auto
 
   # ---- Server + status (Phase 4, auto) ----
-  # list_servers:   auto
-  # status:         auto
-  # disk_usage:     auto
+  list_servers:   auto
+  status:         auto
+  disk_usage:     auto
 
   # ---- Deployment (Phase 5, notify) ----
   # deploy:         notify

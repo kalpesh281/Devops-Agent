@@ -19,18 +19,21 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-# Importing tools.github_tools populates the tool REGISTRY at startup.
-import tools.github_tools  # noqa: F401  # side-effect: @tool decorators register
+# Importing tools.* populates the tool REGISTRY at startup (side-effect via @tool).
+import tools.github_tools  # noqa: F401
+import tools.server_tools  # noqa: F401
 from api.routes import health, metrics
 from config.settings import settings
 from telegram_bot.bot import start_bot, stop_bot
 from utils import user_reverifier
+from utils.docker_context import invalidate_all as invalidate_docker_clients
 from utils.github_cache import cache as github_cache
 from utils.logger import configure_logging, get_logger
 from utils.mongo import close as close_mongo
-from utils.mongo import ensure_indexes
+from utils.mongo import ensure_indexes, get_db
 from utils.mongo import ping as mongo_ping
 from utils.secrets_check import verify_env_security
+from utils.server_registry import ServerConfigError, load_servers_yml, sync_to_mongo
 from utils.user_registry import ensure_indexes as ensure_user_indexes
 from utils.user_registry import refresh_cache as refresh_user_cache
 
@@ -67,6 +70,16 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     github_cache.spawn(interval_seconds=300)
     log.info("github_cache.spawned", interval_seconds=300)
 
+    # Phase 4 — load servers.yml → Mongo. Warn-and-continue if missing so the
+    # repo clones cleanly on a fresh machine; deploys will fail later with a
+    # clear "no servers registered" message instead of crashing the API.
+    try:
+        servers = load_servers_yml()
+        result = await sync_to_mongo(get_db(), servers)
+        log.info("servers.synced", **result)
+    except ServerConfigError as e:
+        log.warning("servers.sync_skipped", reason=str(e))
+
     # Phase 3 — Telegram bot + 24h user reverifier.
     await start_bot()
     user_reverifier.start()
@@ -79,6 +92,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await stop_bot()
         await user_reverifier.stop()
         await github_cache.stop()
+        invalidate_docker_clients()
         await close_mongo()
         log.info("shutdown.complete")
 

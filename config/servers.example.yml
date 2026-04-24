@@ -1,0 +1,62 @@
+# ============================================================
+# secrets/servers.yml — canonical example (spec §5.1)
+# ============================================================
+#   cp config/servers.example.yml secrets/servers.yml
+#   chmod 600 secrets/servers.yml
+#
+# This file is the ONLY way to declare deployment targets. No
+# chat command can add, remove, or edit servers at runtime (§5.1).
+# On agent startup the entries below are upserted into the Mongo
+# `servers` collection; IDs present in Mongo but missing here are
+# removed (strict sync).
+#
+# Required fields (all entries):
+#   id          unique string key — used as Mongo _id and referenced
+#               by each repo's deploy.config.yml `target_server:`
+#   type        physical | ec2 | vps | other  (free-text, informational)
+#   connection  local | ssh
+#                 local → talks to the Docker daemon on this host
+#                         (use this on the physical server in prod)
+#                 ssh   → talks to Docker over SSH
+#                         (use this during Mac dev targeting the
+#                          physical server; docker-py invokes
+#                          `docker` over SSH via paramiko)
+#
+# SSH-only fields (connection: ssh):
+#   host        hostname or IP of the remote Docker daemon
+#   ssh_user    SSH username on the remote host
+#   pem         stem of a PEM file in ${PEM_DIR} (no extension, no
+#               path).  e.g.  pem: physical  →  /devops_agent/pem/physical.pem
+#               For docker-py's ssh:// to work, this PEM must also be
+#               loaded into your ssh-agent OR referenced by
+#               ~/.ssh/config for the same host.  See README.
+#
+# Optional fields (any connection):
+#   region      informational (e.g. "ap-south-1")
+#   labels      list[str], free-form (used by /servers for grouping)
+# ============================================================
+
+servers:
+  # ────────────────────────────────────────────
+  # Mac-dev target.  Leave this entry as-is while
+  # developing on your laptop — it points the agent
+  # at Docker Desktop on this same machine.
+  # ────────────────────────────────────────────
+  - id: physical-main
+    type: physical
+    connection: local
+    labels: [internal, default]
+
+  # ────────────────────────────────────────────
+  # Example EC2 target.  Uncomment and customize
+  # only after you have the PEM placed in
+  # /devops_agent/pem/<pem>.pem (mode 600).
+  # ────────────────────────────────────────────
+  # - id: client-acme-prod
+  #   type: ec2
+  #   connection: ssh
+  #   host: ec2-1-2-3-4.ap-south-1.compute.amazonaws.com
+  #   ssh_user: ubuntu
+  #   pem: acme
+  #   region: ap-south-1
+  #   labels: [client:acme, prod]
